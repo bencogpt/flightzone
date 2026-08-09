@@ -1,0 +1,2399 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>שאל את הנתונים — ממשק שאילתה בשפה טבעית (מוקאפ)</title>
+<meta name="description" content="מוקאפ HTML בודד עם נתונים סינתטיים לממשק שאילתה בשפה טבעית על נתוני כניסה ויציאה">
+<style>
+/* ============================================================
+   Design tokens
+   ============================================================ */
+:root{
+  --bg:#eef1f5; --surface:#ffffff; --surface-2:#f7f9fc; --surface-3:#eef2f7;
+  --ink:#15202b; --ink-2:#3c4c5d; --muted:#6b7c8e; --line:#d7dee7; --line-2:#e6ecf3;
+  --brand:#1c4a76; --brand-2:#2a6fbf; --brand-ink:#ffffff; --brand-soft:#e6effa;
+  --ok:#12704a; --ok-soft:#e2f4ea;
+  --warn:#8f5a06; --warn-soft:#fcf1dc;
+  --calc:#5f3aa6; --calc-soft:#efe9fb;
+  --danger:#a4181b; --danger-soft:#fdeaea;
+  --shadow:0 1px 2px rgba(16,32,48,.06), 0 8px 24px rgba(16,32,48,.07);
+  --shadow-sm:0 1px 2px rgba(16,32,48,.08);
+  --r:12px; --r-sm:8px; --r-lg:18px;
+  --sidebar:264px;
+  --c1:#2a6fbf; --c2:#12856b; --c3:#b5761c; --c4:#7a4fbd; --c5:#c2504b; --c6:#3f7f9e; --c7:#8a8f2e; --c8:#a8478b;
+}
+html[data-theme="dark"]{
+  --bg:#0d131a; --surface:#151e28; --surface-2:#1b2632; --surface-3:#22303e;
+  --ink:#e8eef5; --ink-2:#c3d0dd; --muted:#8fa1b3; --line:#2b3947; --line-2:#233140;
+  --brand:#9dc4ef; --brand-2:#69a6ec; --brand-ink:#0d131a; --brand-soft:#1a2c40;
+  --ok:#5fd6a4; --ok-soft:#14332a;
+  --warn:#e7b563; --warn-soft:#33270f;
+  --calc:#bfa3f5; --calc-soft:#261c3d;
+  --danger:#f39a9a; --danger-soft:#3a1a1a;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px rgba(0,0,0,.35);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+  --c1:#69a6ec; --c2:#4fc4a2; --c3:#dfae5e; --c4:#b195ef; --c5:#e88a86; --c6:#7fb8d0; --c7:#c3c86a; --c8:#e08cc4;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Segoe UI","Assistant","Rubik","Noto Sans Hebrew",Arial,system-ui,sans-serif;
+  font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--brand-2)}
+:focus-visible{outline:3px solid var(--brand-2); outline-offset:2px; border-radius:4px}
+.ltr{direction:ltr; unicode-bidi:isolate; display:inline-block}
+.nowrap{white-space:nowrap}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.skip{position:absolute;inset-inline-start:-9999px;top:8px;z-index:99;background:var(--surface);padding:10px 14px;border-radius:8px;box-shadow:var(--shadow)}
+.skip:focus{inset-inline-start:12px}
+
+/* ============================================================
+   App shell
+   ============================================================ */
+.app{display:grid;grid-template-columns:var(--sidebar) 1fr;grid-template-rows:auto 1fr;min-height:100vh}
+header.top{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:10px 18px;
+  background:var(--brand);color:var(--brand-ink);box-shadow:var(--shadow-sm);position:sticky;top:0;z-index:30}
+html[data-theme="dark"] header.top{background:#101a24;color:var(--ink);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px}
+.brand .logo{width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.16);
+  display:grid;place-items:center;font-size:17px}
+html[data-theme="dark"] .brand .logo{background:var(--brand-soft)}
+.brand small{display:block;font-weight:400;font-size:11.5px;opacity:.82;letter-spacing:0}
+.demo-chip{background:#f5c451;color:#3a2a00;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.top-spacer{flex:1}
+.top-meta{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.top-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,.14);
+  padding:4px 9px;border-radius:999px;white-space:nowrap}
+html[data-theme="dark"] .top-badge{background:var(--surface-2)}
+.icon-btn{background:rgba(255,255,255,.14);border:0;color:inherit;width:32px;height:32px;border-radius:9px;cursor:pointer}
+html[data-theme="dark"] .icon-btn{background:var(--surface-2)}
+.icon-btn:hover{background:rgba(255,255,255,.26)}
+.user{display:flex;align-items:center;gap:8px}
+.avatar{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:12.5px;font-weight:700}
+html[data-theme="dark"] .avatar{background:var(--brand-soft)}
+.role-select{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);border-radius:8px;padding:4px 8px;font-size:12.5px}
+html[data-theme="dark"] .role-select{background:var(--surface-2);border-color:var(--line)}
+
+nav.side{background:var(--surface);border-inline-start:1px solid var(--line);padding:14px 12px;
+  display:flex;flex-direction:column;gap:4px;position:sticky;top:53px;align-self:start;max-height:calc(100vh - 53px);overflow:auto}
+.side h6{margin:14px 8px 4px;font-size:11px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;border:0;background:none;
+  cursor:pointer;text-align:start;width:100%;color:var(--ink-2);font-size:14.5px}
+.nav-item:hover{background:var(--surface-3)}
+.nav-item[aria-current="page"]{background:var(--brand-soft);color:var(--brand);font-weight:600}
+html[data-theme="dark"] .nav-item[aria-current="page"]{color:var(--brand-2)}
+.nav-item .ni{width:20px;text-align:center;font-size:15px}
+.nav-item .count{margin-inline-start:auto;background:var(--surface-3);color:var(--muted);border-radius:999px;
+  font-size:11.5px;padding:1px 7px;min-width:20px;text-align:center}
+.nav-item[aria-current="page"] .count{background:var(--surface);color:var(--brand)}
+.side-foot{margin-top:auto;padding:10px 8px;border-top:1px solid var(--line-2);color:var(--muted);font-size:11.5px}
+main{padding:20px 22px 60px;min-width:0}
+.view[hidden]{display:none}
+.page-head{margin:0 0 16px}
+.page-head h1{margin:0;font-size:22px;letter-spacing:-.2px}
+.page-head p{margin:5px 0 0;color:var(--muted);font-size:13.5px;max-width:75ch}
+
+/* ============================================================
+   Generic UI
+   ============================================================ */
+.card{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);box-shadow:var(--shadow-sm)}
+.btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink);padding:8px 13px;border-radius:10px;cursor:pointer;font-size:13.5px;white-space:nowrap}
+.btn:hover{background:var(--surface-3)}
+.btn.primary{background:var(--brand-2);border-color:var(--brand-2);color:#fff;font-weight:600}
+html[data-theme="dark"] .btn.primary{color:#0d131a}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--brand-2)}
+.btn.ghost:hover{background:var(--brand-soft)}
+.btn.sm{padding:5px 10px;font-size:12.5px;border-radius:8px}
+.btn.danger{color:var(--danger);border-color:var(--line)}
+.btn.danger:hover{background:var(--danger-soft)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);
+  border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer;color:var(--ink-2)}
+.chip:hover{background:var(--brand-soft);border-color:var(--brand-2);color:var(--brand)}
+.pill{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.calc{background:var(--calc-soft);color:var(--calc)}
+.pill.neutral{background:var(--surface-3);color:var(--muted)}
+.pill.brand{background:var(--brand-soft);color:var(--brand)}
+html[data-theme="dark"] .pill.brand{color:var(--brand-2)}
+.ftag{font-size:10.5px;font-weight:700;background:var(--surface-3);color:var(--muted);border-radius:6px;padding:1px 6px;letter-spacing:.3px}
+body:not(.show-ftags) .ftag{display:none}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.grow{flex:1}
+.divider{height:1px;background:var(--line-2);margin:14px 0}
+.field{display:block;margin-bottom:12px}
+.field > span{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px;font-weight:600}
+.input,select.input,textarea.input{width:100%;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:10px;padding:9px 11px;font-size:14px}
+textarea.input{resize:vertical;min-height:72px}
+.empty{text-align:center;padding:44px 20px;color:var(--muted)}
+.empty .big{font-size:34px;display:block;margin-bottom:8px;opacity:.7}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+
+/* ============================================================
+   Ask view — composer & conversation
+   ============================================================ */
+.ask-wrap{max-width:1080px;margin:0 auto}
+.composer{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--shadow);padding:12px 14px}
+.composer.focus{border-color:var(--brand-2);box-shadow:0 0 0 3px var(--brand-soft),var(--shadow)}
+.composer textarea{width:100%;border:0;background:none;resize:none;font-size:16.5px;line-height:1.5;
+  min-height:52px;max-height:180px;padding:4px 2px;outline:none}
+.composer-foot{display:flex;align-items:center;gap:10px;padding-top:8px;border-top:1px solid var(--line-2);margin-top:6px}
+.composer-hint{font-size:12px;color:var(--muted)}
+.suggests{margin:14px 0 6px}
+.suggests h3{font-size:13px;color:var(--muted);margin:0 0 8px;font-weight:600}
+.suggests .row{gap:8px}
+.thread{display:flex;flex-direction:column;gap:16px;margin-top:22px}
+.turn{display:flex;gap:12px}
+.turn .who{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:0 0 34px;
+  font-size:14px;font-weight:700;background:var(--surface-3);color:var(--ink-2)}
+.turn.me .who{background:var(--brand);color:#fff}
+html[data-theme="dark"] .turn.me .who{background:var(--brand-soft);color:var(--brand)}
+.turn.sys .who{background:var(--brand-soft);color:var(--brand)}
+html[data-theme="dark"] .turn.sys .who{color:var(--brand-2)}
+.turn .body{flex:1;min-width:0}
+.qbubble{background:var(--brand);color:#fff;border-radius:14px 14px 14px 4px;padding:10px 14px;font-size:15.5px;display:inline-block;max-width:80ch}
+html[data-theme="dark"] .qbubble{background:var(--brand-soft);color:var(--ink)}
+.qmeta{font-size:11.5px;color:var(--muted);margin-top:5px}
+.bubble{background:var(--surface);border:1px solid var(--line-2);border-radius:14px 14px 4px 14px;
+  padding:14px 16px;box-shadow:var(--shadow-sm)}
+.typing{display:inline-flex;gap:4px;align-items:center;padding:12px 16px}
+.typing i{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:bl 1.1s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes bl{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+
+/* clarify (F2) */
+.clarify{border:1px solid var(--brand-2);background:var(--brand-soft);border-radius:14px 14px 4px 14px;padding:14px 16px}
+html[data-theme="dark"] .clarify{background:var(--surface-2)}
+.clarify .q{font-size:15.5px;margin:0 0 10px}
+.clarify .why{font-size:12px;color:var(--muted);margin:0 0 10px}
+.clarify .opts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.clarify .opts .chip{background:var(--surface)}
+.clarify .free{display:flex;gap:8px;margin-top:10px}
+.clarify .free .input{background:var(--surface)}
+
+/* answer card */
+.answer{padding:0;overflow:hidden}
+.answer .ahead{display:flex;align-items:flex-start;gap:12px;padding:14px 16px 0}
+.answer .ahead .grow{min-width:0}
+.headline{font-size:17px;line-height:1.5;margin:0}
+.headline strong{font-size:25px;font-weight:800;color:var(--brand);letter-spacing:-.5px}
+html[data-theme="dark"] .headline strong{color:var(--brand-2)}
+.subline{margin:7px 0 0;color:var(--ink-2);font-size:14px}
+.kpis{display:flex;gap:10px;flex-wrap:wrap;padding:14px 16px 0}
+.kpi{background:var(--surface-2);border:1px solid var(--line-2);border-radius:10px;padding:9px 13px;min-width:120px}
+.kpi b{display:block;font-size:20px;letter-spacing:-.4px}
+.kpi span{font-size:11.5px;color:var(--muted)}
+.notes{margin:12px 16px 0;padding:9px 12px;border-radius:10px;background:var(--surface-2);
+  border:1px dashed var(--line);font-size:12.5px;color:var(--ink-2)}
+.notes ul{margin:5px 0 0;padding-inline-start:18px}
+.chart-box{padding:8px 10px 4px}
+.chart-title{font-size:12.5px;color:var(--muted);padding:6px 8px 0;display:flex;gap:8px;align-items:center}
+.answer-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 16px;
+  background:var(--surface-2);border-top:1px solid var(--line-2);margin-top:12px}
+.fb{display:flex;align-items:center;gap:6px;margin-inline-start:auto;font-size:12.5px;color:var(--muted)}
+.fb button{width:32px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+.fb button:hover{background:var(--surface-3)}
+.fb button[aria-pressed="true"]{background:var(--brand-soft);border-color:var(--brand-2)}
+.unanswered{border-inline-start:4px solid var(--warn)}
+.unanswered .why-list{margin:8px 0 0;padding-inline-start:18px;color:var(--ink-2);font-size:14px}
+
+/* charts */
+svg.chart{width:100%;height:auto;display:block;overflow:visible}
+svg.chart text{font-family:inherit;fill:var(--muted);font-size:11px}
+svg.chart .grid{stroke:var(--line-2);stroke-width:1}
+svg.chart .axis{stroke:var(--line);stroke-width:1}
+svg.chart .hit{cursor:pointer}
+svg.chart .hit:hover{opacity:.82}
+svg.chart .vlabel{fill:var(--ink-2);font-size:11px;font-weight:600}
+.legend{display:flex;gap:12px;flex-wrap:wrap;padding:4px 14px 12px;font-size:12.5px;color:var(--ink-2)}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-inline-end:5px}
+.chart-hint{font-size:11.5px;color:var(--muted);padding:0 16px 12px}
+
+/* table / drill-down */
+.tablewrap{overflow:auto;max-height:60vh;border-top:1px solid var(--line-2)}
+table.data{width:100%;border-collapse:collapse;font-size:13px;min-width:720px}
+table.data th,table.data td{padding:8px 10px;border-bottom:1px solid var(--line-2);text-align:start;white-space:nowrap}
+table.data thead th{position:sticky;top:0;background:var(--surface-3);z-index:2;cursor:pointer;font-size:12px;color:var(--ink-2)}
+table.data thead th:hover{color:var(--brand-2)}
+table.data tbody tr:hover{background:var(--surface-2)}
+table.data td.na{color:var(--muted);font-style:italic}
+.pager{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:12.5px;color:var(--muted);border-top:1px solid var(--line-2);flex-wrap:wrap}
+
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(10,20,30,.5);display:grid;place-items:center;z-index:60;padding:18px}
+.modal{background:var(--surface);border-radius:var(--r-lg);box-shadow:var(--shadow);width:min(660px,100%);
+  max-height:88vh;display:flex;flex-direction:column;overflow:hidden}
+.modal.wide{width:min(1180px,100%)}
+.modal-head{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line-2)}
+.modal-head h2{margin:0;font-size:17px}
+.modal-body{padding:16px 18px;overflow:auto}
+.modal-foot{padding:12px 18px;border-top:1px solid var(--line-2);display:flex;gap:8px;justify-content:flex-start;
+  background:var(--surface-2)}
+.recips{max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}
+.recips label{display:flex;gap:9px;align-items:center;padding:7px 11px;border-bottom:1px solid var(--line-2);font-size:13.5px;cursor:pointer}
+.recips label:last-child{border-bottom:0}
+.recips label:hover{background:var(--surface-3)}
+.mail{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mail .mh{background:var(--surface-2);padding:10px 13px;border-bottom:1px solid var(--line-2);font-size:12.5px}
+.mail .mb{padding:14px}
+
+/* lists */
+.list{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;gap:12px;align-items:flex-start;padding:13px 15px}
+.item .grow{min-width:0}
+.item h4{margin:0 0 3px;font-size:14.5px;font-weight:600}
+.item .meta{font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+.item .acts{display:flex;gap:6px;flex-wrap:wrap}
+.star{background:none;border:0;cursor:pointer;font-size:16px;line-height:1;color:var(--muted);padding:2px 4px}
+.star[aria-pressed="true"]{color:#e0a92b}
+.paused{opacity:.62}
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:14px;flex-wrap:wrap}
+.tab{border:0;background:none;padding:9px 13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;font-size:14px}
+.tab[aria-selected="true"]{color:var(--brand-2);border-color:var(--brand-2);font-weight:600}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.stat{padding:14px 16px}
+.stat b{display:block;font-size:26px;letter-spacing:-.6px}
+.stat span{font-size:12.5px;color:var(--muted)}
+
+/* toast */
+.toasts{position:fixed;inset-block-end:18px;inset-inline-start:18px;display:flex;flex-direction:column;gap:8px;z-index:80}
+.toast{background:var(--ink);color:var(--surface);padding:10px 14px;border-radius:10px;box-shadow:var(--shadow);
+  font-size:13.5px;max-width:380px;animation:up .18s ease-out}
+html[data-theme="dark"] .toast{background:var(--surface-3);color:var(--ink);border:1px solid var(--line)}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* tooltip */
+.tip{position:relative;cursor:help;border-bottom:1px dotted currentColor}
+.tip .tipbox{position:absolute;inset-block-end:130%;inset-inline-end:-6px;background:var(--ink);color:var(--surface);
+  padding:8px 11px;border-radius:8px;font-size:12px;font-weight:400;width:250px;display:none;z-index:20;box-shadow:var(--shadow);line-height:1.45}
+html[data-theme="dark"] .tip .tipbox{background:var(--surface-3);color:var(--ink);border:1px solid var(--line)}
+.tip:hover .tipbox,.tip:focus-visible .tipbox{display:block}
+
+/* schema table */
+table.schema{width:100%;border-collapse:collapse;font-size:13px}
+table.schema th,table.schema td{border:1px solid var(--line-2);padding:8px 10px;text-align:start;vertical-align:top}
+table.schema thead th{background:var(--surface-3);font-size:12.5px}
+table.schema td.y{color:var(--ok);font-weight:600}
+table.schema td.n{color:var(--muted)}
+
+@media (max-width:900px){
+  .app{grid-template-columns:minmax(0,1fr)}
+  header.top{flex-wrap:wrap;gap:8px;padding:8px 12px}
+  .top-meta{flex-wrap:wrap;gap:7px;font-size:12px}
+  .top-spacer{display:none}
+  .kpi{min-width:104px;padding:7px 10px}
+  .kpi b{font-size:17px}
+  .headline strong{font-size:21px}
+  nav.side{position:static;max-height:none;flex-direction:row;overflow-x:auto;border-inline-start:0;border-bottom:1px solid var(--line)}
+  nav.side h6,.side-foot{display:none}
+  .nav-item{width:auto;white-space:nowrap}
+  main{padding:14px;overflow-x:hidden}
+  .item{flex-wrap:wrap}
+  .item .acts{width:100%}
+}
+@media (max-width:560px){
+  #latencyBadge,.top-badge[title^="NFR5"]{display:none}
+  .brand small{display:none}
+  .role-select{max-width:150px}
+}
+@media print{
+  header.top,nav.side,.composer,.suggests,.answer-foot,.toasts,.no-print,.chart-hint{display:none!important}
+  body{background:#fff}
+  .app{display:block}
+  .card,.bubble{box-shadow:none;border-color:#ccc}
+  .print-only{display:block!important}
+}
+.print-only{display:none}
+</style>
+</head>
+<body class="show-ftags">
+<a class="skip" href="#main">דלג לתוכן הראשי</a>
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🛂</span>
+      <span>שאל את הנתונים<small>כניסות ויציאות — טיסות ומעברי גבול</small></span>
+    </div>
+    <span class="demo-chip">מוקאפ · נתונים סינתטיים</span>
+    <span class="top-spacer"></span>
+    <div class="top-meta">
+      <span class="top-badge" title="NFR5 — אימות דרך SSO ארגוני עם MFA">🔐 SSO + MFA</span>
+      <span class="top-badge" id="latencyBadge" title="NFR1 — זמן תגובה מרבי 10 שניות">⏱️ —</span>
+      <label class="sr" for="roleSel">תפקיד לצורך הדגמה</label>
+      <select id="roleSel" class="role-select">
+        <option value="field">רוני כהן — חוקר שטח</option>
+        <option value="analyst">מיכל לוי — אנליסטית</option>
+        <option value="pm">דנה אבידן — מנהלת מוצר</option>
+      </select>
+      <div class="user"><span class="avatar" id="avatar">רכ</span></div>
+      <button class="icon-btn" id="themeBtn" title="מצב כהה / בהיר" aria-label="החלפת מצב תצוגה">🌓</button>
+    </div>
+  </header>
+
+  <nav class="side" aria-label="ניווט ראשי">
+    <h6>עבודה</h6>
+    <button class="nav-item" data-view="ask" aria-current="page"><span class="ni">💬</span> שאל את הנתונים</button>
+    <button class="nav-item" data-view="history"><span class="ni">🕘</span> היסטוריית שאילתות <span class="count" id="cHistory">0</span></button>
+    <button class="nav-item" data-view="favorites"><span class="ni">⭐</span> מועדפים <span class="count" id="cFav">0</span></button>
+    <button class="nav-item" data-view="scheduled"><span class="ni">📧</span> דו"חות מתוזמנים <span class="count" id="cSched">0</span></button>
+    <h6>ניהול מוצר</h6>
+    <button class="nav-item" data-view="gaps"><span class="ni">🚧</span> שאלות ללא מענה <span class="count" id="cGaps">0</span></button>
+    <button class="nav-item" data-view="feedback"><span class="ni">👍</span> דו"ח Feedback <span class="count" id="cFb">0</span></button>
+    <button class="nav-item" data-view="audit"><span class="ni">📜</span> Audit log <span class="count" id="cAudit">0</span></button>
+    <h6>נתונים</h6>
+    <button class="nav-item" data-view="sources"><span class="ni">🗂️</span> מקורות ו-Schema</button>
+    <button class="nav-item" data-view="about"><span class="ni">🧭</span> מדריך הדגמה</button>
+    <div class="side-foot">
+      <label class="row small" style="gap:7px;cursor:pointer">
+        <input type="checkbox" id="ftagToggle" checked>
+        <span>הצג תגי דרישות (F1–F12)</span>
+      </label>
+      <div style="margin-top:8px">גרסת מוקאפ 1.1 · ללא Backend</div>
+    </div>
+  </nav>
+
+  <main id="main">
+    <!-- ============ ASK ============ -->
+    <section class="view" id="view-ask">
+      <div class="ask-wrap">
+        <div class="page-head">
+          <h1>מה תרצה לדעת?</h1>
+          <p>כתוב שאלה בעברית חופשית על נתוני כניסה ויציאה. אין צורך ב-SQL. <span class="ftag">F1</span></p>
+        </div>
+
+        <div class="composer" id="composer">
+          <label class="sr" for="q">השאלה שלך</label>
+          <textarea id="q" rows="2" placeholder="לדוגמה: כמה כניסות דרך מעברים יבשתיים היו ביוני 2026, לפי אזרחות?"></textarea>
+          <div class="composer-foot">
+            <span class="composer-hint">Enter לשליחה · Shift+Enter לשורה חדשה</span>
+            <span class="grow"></span>
+            <button class="btn" id="clearBtn" type="button">נקה שיחה</button>
+            <button class="btn primary" id="askBtn" type="button">שאל ›</button>
+          </div>
+        </div>
+
+        <div class="suggests" id="suggests">
+          <h3>שאלות לדוגמה — לחיצה תריץ אותן</h3>
+          <div class="row" id="suggestRow"></div>
+        </div>
+
+        <div class="thread" id="thread" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- ============ HISTORY ============ -->
+    <section class="view" id="view-history" hidden>
+      <div class="page-head">
+        <h1>היסטוריית שאילתות</h1>
+        <p>נשמרת בין סשנים לפי משתמש, 6 חודשים אחורה. ניתן לחפש, לשחזר בלחיצה ולסמן כמועדף. <span class="ftag">F9</span></p>
+      </div>
+      <div class="toolbar">
+        <input class="input" id="histSearch" placeholder="חיפוש בהיסטוריה…" style="max-width:320px">
+        <select class="input" id="histFilter" style="max-width:200px">
+          <option value="all">כל השאילתות</option>
+          <option value="answered">נענו</option>
+          <option value="gap">ללא מענה</option>
+          <option value="fav">מועדפות</option>
+        </select>
+        <span class="grow"></span>
+        <button class="btn danger" id="histClear">מחק היסטוריה</button>
+      </div>
+      <div class="list" id="histList"></div>
+    </section>
+
+    <!-- ============ FAVORITES ============ -->
+    <section class="view" id="view-favorites" hidden>
+      <div class="page-head"><h1>שאילתות מועדפות</h1><p>גישה מהירה לשאילתות שסימנת. <span class="ftag">F9</span></p></div>
+      <div class="list" id="favList"></div>
+    </section>
+
+    <!-- ============ SCHEDULED ============ -->
+    <section class="view" id="view-scheduled" hidden>
+      <div class="page-head">
+        <h1>דו"חות מתוזמנים</h1>
+        <p>כל שאילתה שנענתה יכולה להפוך לדו"ח חוזר שנשלח במייל לנמענים מרשימה סגורה. <span class="ftag">F10</span></p>
+      </div>
+      <div class="grid2" style="margin-bottom:14px" id="schedStats"></div>
+      <div class="list" id="schedList"></div>
+    </section>
+
+    <!-- ============ GAPS ============ -->
+    <section class="view" id="view-gaps" hidden>
+      <div class="page-head">
+        <h1>דו"ח "שאלות ללא מענה"</h1>
+        <p>נרשם אוטומטית בכל פעם שהמערכת לא יכולה לענות. נשלח שבועית למנהלת המוצר ולצוות הפיתוח. <span class="ftag">F11</span></p>
+      </div>
+      <div class="toolbar">
+        <span class="pill neutral">תדירות שליחה: שבועי (יום א׳, 08:00)</span>
+        <span class="pill neutral">שמירה: ללא הגבלה <span class="ftag">NFR8</span></span>
+        <span class="grow"></span>
+        <button class="btn" id="gapsPreview">תצוגת המייל השבועי</button>
+        <button class="btn" id="gapsExport">ייצוא Excel</button>
+      </div>
+      <div class="card" id="gapsTable"></div>
+    </section>
+
+    <!-- ============ FEEDBACK ============ -->
+    <section class="view" id="view-feedback" hidden>
+      <div class="page-head">
+        <h1>דו"ח Feedback גולמי</h1>
+        <p>אין ממשק ניהול ב-V1 — הנתונים מגיעים כדו"ח גולמי ל-PM ולפיתוח, בסקירה שבועית. Feedback מרובה על אותה שאלה מקובץ. <span class="ftag">F12</span></p>
+      </div>
+      <div class="grid2" style="margin-bottom:14px" id="fbStats"></div>
+      <div class="card" id="fbTable"></div>
+    </section>
+
+    <!-- ============ AUDIT ============ -->
+    <section class="view" id="view-audit" hidden>
+      <div class="page-head">
+        <h1>Audit log</h1>
+        <p>לכל שאילתה נרשמים זהות המשתמש, טקסט השאלה ותאריך/שעה. <span class="ftag">NFR6</span></p>
+      </div>
+      <div class="toolbar">
+        <input class="input" id="auditSearch" placeholder="חיפוש ביומן…" style="max-width:320px">
+        <span class="grow"></span>
+        <button class="btn" id="auditExport">ייצוא Excel</button>
+      </div>
+      <div class="card" id="auditTable"></div>
+    </section>
+
+    <!-- ============ SOURCES ============ -->
+    <section class="view" id="view-sources" hidden>
+      <div class="page-head">
+        <h1>מקורות נתונים ו-Schema מאוחד</h1>
+        <p>כל המקורות מוצגים דרך schema אחיד. שדה שאינו קיים במקור מסוים מסומן N/A ואינו גורם לשגיאה; פערים והתנגשויות מוזנים למחוון האמינות. <span class="ftag">F6</span></p>
+      </div>
+      <div class="grid2" id="srcStats" style="margin-bottom:16px"></div>
+      <div class="card" style="padding:14px 16px;margin-bottom:16px">
+        <h3 style="margin:0 0 8px;font-size:15px">פערים והתנגשויות ידועים</h3>
+        <div id="srcGaps"></div>
+      </div>
+      <div class="card" style="padding:14px 16px;overflow:auto">
+        <h3 style="margin:0 0 10px;font-size:15px">מיפוי שדות לפי מקור</h3>
+        <div style="overflow:auto"><table class="schema" id="schemaTable"></table></div>
+      </div>
+    </section>
+
+    <!-- ============ ABOUT ============ -->
+    <section class="view" id="view-about" hidden>
+      <div class="page-head">
+        <h1>מדריך הדגמה</h1>
+        <p>המוקאפ הוא קובץ HTML בודד ללא Backend. הנתונים סינתטיים ונוצרים בדפדפן (seed קבוע), והמצב נשמר ב-localStorage.</p>
+      </div>
+      <div class="grid2" id="aboutCards"></div>
+      <div class="card" style="padding:14px 16px;margin-top:16px">
+        <h3 style="margin:0 0 10px;font-size:15px">כיסוי דרישות</h3>
+        <div style="overflow:auto"><table class="schema" id="coverTable"></table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<div id="modalRoot"></div>
+
+<script>
+/* ============================================================================
+   שאל את הנתונים — מוקאפ עם נתונים סינתטיים, ללא Backend
+   מודול 1: תשתית, נתונים סינתטיים, schema מאוחד
+   ============================================================================ */
+"use strict";
+
+/* ---------- utils ---------- */
+const $  = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = n => Number(n).toLocaleString('he-IL');
+const pct = (a, b) => b ? Math.round(a / b * 1000) / 10 : 0;
+const uid = () => Math.random().toString(36).slice(2, 10);
+
+// seeded PRNG (mulberry32) — נתונים זהים בכל טעינה
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const R = rng(20260809);
+const pick = arr => arr[Math.floor(R() * arr.length)];
+const pickW = pairs => { // [[value,weight],…]
+  const tot = pairs.reduce((s, p) => s + p[1], 0); let x = R() * tot;
+  for (const [v, w] of pairs) { x -= w; if (x <= 0) return v; } return pairs[0][0];
+};
+const iRnd = (a, b) => a + Math.floor(R() * (b - a + 1));
+
+const MONTHS_HE = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+const DAYS_HE = ['א׳','ב׳','ג׳','ד׳','ה׳','ו׳','ש׳'];
+const NOW = new Date(2026, 7, 9, 14, 35); // 09/08/2026 — "היום" במוקאפ
+const d2 = n => String(n).padStart(2, '0');
+const fDate = d => `${d2(d.getDate())}/${d2(d.getMonth() + 1)}/${d.getFullYear()}`;
+const fTime = d => `${d2(d.getHours())}:${d2(d.getMinutes())}`;
+const fDT = d => `${fDate(d)} ${fTime(d)}`;
+const monthKey = d => `${d.getFullYear()}-${d2(d.getMonth() + 1)}`;
+const monthLabel = k => { const [y, m] = k.split('-'); return `${MONTHS_HE[+m - 1].slice(0,3)} ${y.slice(2)}`; };
+const dayKey = d => `${d.getFullYear()}-${d2(d.getMonth() + 1)}-${d2(d.getDate())}`;
+const addDays = (d, n) => new Date(d.getTime() + n * 864e5);
+
+/* ---------- מקורות נתונים (5.1) ---------- */
+const SOURCES = {
+  local_air:   { id:'local_air',   label:'טיסות — חברת תעופה מקומית', short:'תעופה מקומית', type:'אווירי', icon:'✈️' },
+  foreign_air: { id:'foreign_air', label:'טיסות — חברות זרות',        short:'תעופה זרה',    type:'אווירי', icon:'🛫' },
+  land:        { id:'land',        label:'מעברי גבול יבשתיים',        short:'יבשתי',        type:'יבשתי',  icon:'🚌' },
+  sea:         { id:'sea',         label:'מעברי גבול ימיים',          short:'ימי',          type:'ימי',    icon:'🚢' }
+};
+const CROSSINGS = {
+  local_air:   ['נמל תעופה מרכזי — טרמינל 3', 'נמל תעופה דרומי'],
+  foreign_air: ['נמל תעופה מרכזי — טרמינל 3', 'נמל תעופה מרכזי — טרמינל 1', 'נמל תעופה דרומי'],
+  land:        ['מעבר גבול צפוני', 'מעבר גבול מזרחי — גשר', 'מעבר גבול מזרחי — עמק', 'מעבר גבול דרומי'],
+  sea:         ['נמל ימי מרכזי', 'נמל ימי דרומי', 'מרינה צפונית']
+};
+const CARRIERS_LOCAL   = ['אל-סקיי 100', 'אל-סקיי 200', 'נתיבי המדינה'];
+const CARRIERS_FOREIGN = ['טורקיש איירליינס','לופטהנזה','אייג׳יאן','ויזאייר','רייאנאיר','איתיהאד','אייר פראנס','ויז אייר אבו דאבי'];
+const COUNTRIES = ['טורקיה','גרמניה','יוון','קפריסין','איטליה','צרפת','ארה"ב','רוסיה','אוקראינה','גאורגיה','מרוקו','איחוד האמירויות','ירדן','מצרים','פולין','הונגריה','תאילנד'];
+const NATIONALITIES = [
+  ['ישראל', 46], ['ירדן', 9], ['טורקיה', 7], ['רוסיה', 6], ['גרמניה', 5], ['ארה"ב', 5],
+  ['אוקראינה', 4], ['גאורגיה', 4], ['מרוקו', 3], ['איחוד האמירויות', 3], ['מצרים', 3],
+  ['צרפת', 2], ['פולין', 2], ['תאילנד', 1]
+];
+const DOC_TYPES = ['דרכון','תעודת מעבר','תעודת זהות','דרכון דיפלומטי'];
+const PURPOSES  = ['תיירות','עסקים','ביקור משפחה','לימודים','מעבר (טרנזיט)','עבודה'];
+
+/* שמות סינתטיים — עברית + תיעתוק לטיני (כולל תיעתוק ערבי בנתונים, NFR7).
+   השמות מקובצים לפי מקור כדי שהצמד שם פרטי + שם משפחה יהיה סביר. */
+const NAME_POOLS = {
+  ar: { first:['מוחמד','אחמד','ח׳אלד','יוסף','סמיר','ראמי','נביל','טארק','באסל','עלי','מחמוד','איברהים','אמינה','פאטמה','ליילא','זהרה'],
+        last:['אל-זובי','ח׳ורי','מנסור','חדאד','דרוויש','שאהין','עבד אל-רחמן','אל-מסרי','ג׳ובראן','קאסם'] },
+  he: { first:['דניאל','יעל','נועם','אבי','שרה','מרים','דינה','איתי','רון','טל','ליאור','עומר'],
+        last:['כהן','לוי','מזרחי','ביטון','פרץ','שוורץ'] },
+  sl: { first:['אנטולי','סרגיי','נטליה','אולגה','אנה'],
+        last:['אברמוב','איוונוב','פטרוב','סרקיסיאן'] },
+  we: { first:['ג׳ורג׳','מייקל','לוקאס','אנה','מרים'],
+        last:['מילר','סמית׳','דובואה','נובאק'] }
+};
+const FIRST_HE = Object.values(NAME_POOLS).flatMap(p => p.first);
+const LAST_HE  = Object.values(NAME_POOLS).flatMap(p => p.last);
+const FEMALE = new Set(['יעל','שרה','מרים','דינה','טל','אמינה','פאטמה','ליילא','זהרה','נטליה','אולגה','אנה']);
+// התאמת מקור השם לאזרחות
+const NAT_POOLS = {
+  'ישראל':[['he',72],['ar',26],['sl',2]], 'ירדן':[['ar',100]], 'מצרים':[['ar',100]], 'מרוקו':[['ar',94],['we',6]],
+  'איחוד האמירויות':[['ar',100]], 'טורקיה':[['ar',62],['we',38]], 'רוסיה':[['sl',100]], 'אוקראינה':[['sl',100]],
+  'גאורגיה':[['sl',88],['we',12]], 'גרמניה':[['we',100]], 'ארה"ב':[['we',100]], 'צרפת':[['we',100]],
+  'פולין':[['we',100]], 'תאילנד':[['we',100]]
+};
+const TRANSLIT = {
+  'מוחמד':'MOHAMMAD','אחמד':'AHMAD','ח׳אלד':'KHALED','יוסף':'YOUSEF','סמיר':'SAMIR','ראמי':'RAMI','נביל':'NABIL',
+  'טארק':'TAREQ','באסל':'BASEL','עלי':'ALI','מחמוד':'MAHMOUD','איברהים':'IBRAHIM','דניאל':'DANIEL','יעל':'YAEL',
+  'נועם':'NOAM','אבי':'AVI','שרה':'SARA','מרים':'MIRIAM','דינה':'DINA','איתי':'ITAI','רון':'RON','טל':'TAL',
+  'ליאור':'LIOR','עומר':'OMER','אנטולי':'ANATOLY','סרגיי':'SERGEY','נטליה':'NATALIA','אולגה':'OLGA','ג׳ורג׳':'GEORGE',
+  'מייקל':'MICHAEL','אנה':'ANNA','לוקאס':'LUKAS','אמינה':'AMINA','פאטמה':'FATMA','ליילא':'LAILA','זהרה':'ZAHRA',
+  'אל-זובי':'AL-ZUBI','ח׳ורי':'KHOURI','מנסור':'MANSOUR','חדאד':'HADDAD','דרוויש':'DARWISH','שאהין':'SHAHIN',
+  'עבד אל-רחמן':'ABD AL-RAHMAN','אל-מסרי':'AL-MASRI','ג׳ובראן':'JUBRAN','קאסם':'QASEM','כהן':'COHEN','לוי':'LEVI',
+  'מזרחי':'MIZRAHI','ביטון':'BITON','פרץ':'PERETZ','אברמוב':'ABRAMOV','איוונוב':'IVANOV','פטרוב':'PETROV',
+  'שוורץ':'SCHWARTZ','מילר':'MILLER','סמית׳':'SMITH','דובואה':'DUBOIS','נובאק':'NOVAK','סרקיסיאן':'SARKISSIAN'
+};
+const tr = w => TRANSLIT[w] || w;
+
+/* ---------- schema מאוחד (5.1) ---------- */
+const FIELDS = [
+  { k:'id',        he:'מזהה רשומה',        srcs:['local_air','foreign_air','land','sea'] },
+  { k:'dirLabel',  he:'כיוון',              srcs:['local_air','foreign_air','land','sea'] },
+  { k:'dtLabel',   he:'תאריך ושעה',         srcs:['local_air','foreign_air','land','sea'] },
+  { k:'typeLabel', he:'סוג מעבר',           srcs:['local_air','foreign_air','land','sea'] },
+  { k:'srcLabel',  he:'מקור נתונים',        srcs:['local_air','foreign_air','land','sea'] },
+  { k:'crossing',  he:'נקודת מעבר',         srcs:['local_air','foreign_air','land','sea'] },
+  { k:'nameHe',    he:'שם (עברית)',         srcs:['local_air','foreign_air','land','sea'] },
+  { k:'nameLat',   he:'תיעתוק לטיני',       srcs:['local_air','foreign_air','land','sea'] },
+  { k:'nationality', he:'אזרחות',           srcs:['local_air','foreign_air','land','sea'], partial:['sea'],
+    note:'ימי — מדווח חלקית; חסר בכ-12% מהרשומות ומוצג כ-N/A' },
+  { k:'birthYear', he:'שנת לידה',           srcs:['local_air','foreign_air','land','sea'] },
+  { k:'gender',    he:'מין',                srcs:['local_air','foreign_air','land','sea'] },
+  { k:'docType',   he:'סוג מסמך',           srcs:['local_air','foreign_air','land','sea'] },
+  { k:'docNo',     he:'מספר מסמך (ממוסך)',  srcs:['local_air','foreign_air','land','sea'] },
+  { k:'carrier',   he:'חברת תעופה',         srcs:['local_air','foreign_air'] },
+  { k:'flightNo',  he:'מספר טיסה',          srcs:['local_air','foreign_air'] },
+  { k:'vessel',    he:'כלי שיט',            srcs:['sea'] },
+  { k:'plate',     he:'מספר רכב',           srcs:['land'] },
+  { k:'country',   he:'מדינת מקור/יעד',     srcs:['local_air','foreign_air','land','sea'] },
+  { k:'purpose',   he:'מטרת נסיעה',         srcs:['local_air','land'], note:'תעופה זרה — לא מדווח; ימי — לא מדווח' }
+];
+const NA = 'N/A';
+
+/* פערים והתנגשויות ידועים — מזינים את מחוון האמינות (F6) */
+const KNOWN_GAPS = [
+  { src:'foreign_air', kind:'missing_period', from:'2026-01-01', to:'2026-02-15',
+    text:'חברות זרות: קליטת נתונים חלקית בין 01/01/2026 ל-15/02/2026 (כ-35% מהרשומות חסרות).' },
+  { src:'sea', kind:'missing_field', field:'nationality',
+    text:'מעברים ימיים: שדה "אזרחות" חסר בכ-12% מהרשומות ומוצג כ-N/A.' },
+  { src:'foreign_air', kind:'missing_field', field:'purpose',
+    text:'חברות זרות ומעברים ימיים: שדה "מטרת נסיעה" אינו מדווח כלל (N/A).' },
+  { src:'land', kind:'conflict',
+    text:'התנגשות מקורות: 214 רשומות במעברים יבשתיים מדווחות גם ע"י מקור אווירי באותו יום — נספרות פעם אחת.' }
+];
+
+/* ---------- יצירת האוכלוסייה והתנועות ---------- */
+const DATA_FROM = new Date(2025, 7, 1);   // 01/08/2025
+const DATA_TO   = new Date(2026, 7, 9);   // 09/08/2026
+
+function buildPeople(n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const nat = pickW(NATIONALITIES);
+    const pool = NAME_POOLS[pickW(NAT_POOLS[nat] || [['we', 1]])];
+    const f = pick(pool.first), l = pick(pool.last);
+    out.push({
+      pid: 'P' + String(10000 + i),
+      nameHe: `${f} ${l}`,
+      nameLat: `${tr(f)} ${tr(l)}`,
+      nationality: nat,
+      birthYear: iRnd(1948, 2008),
+      gender: FEMALE.has(f) ? 'נ' : 'ז',
+      docType: nat === 'ישראל' ? pickW([['דרכון', 88], ['תעודת מעבר', 7], ['דרכון דיפלומטי', 5]]) : pickW([['דרכון', 94], ['תעודת מעבר', 6]]),
+      docNo: '••••' + iRnd(1000, 9999)
+    });
+  }
+  return out;
+}
+
+function seasonWeight(d) {           // עומס עונתי: קיץ וחגים
+  const m = d.getMonth();
+  return [0.85,0.8,0.95,1.15,1.0,1.05,1.35,1.4,1.1,1.05,0.85,0.95][m];
+}
+
+function buildRecords(people) {
+  const recs = [];
+  let seq = 1;
+  const totalDays = Math.round((DATA_TO - DATA_FROM) / 864e5);
+
+  for (const p of people) {
+    const trips = pickW([[1, 26], [2, 30], [3, 22], [4, 14], [5, 8]]);
+    for (let t = 0; t < trips; t++) {
+      // תאריך כניסה נבחר באופן אחיד על פני כל התקופה, עם משקל עונתי
+      let day = iRnd(0, totalDays - 1), entry = addDays(DATA_FROM, day), guard = 0;
+      while (R() > seasonWeight(entry) / 1.4 && guard++ < 4) {
+        day = iRnd(0, totalDays - 1); entry = addDays(DATA_FROM, day);
+      }
+
+      const srcId = p.nationality === 'ירדן' || p.nationality === 'מצרים'
+        ? pickW([['land', 62], ['local_air', 14], ['foreign_air', 20], ['sea', 4]])
+        : pickW([['local_air', 34], ['foreign_air', 42], ['land', 17], ['sea', 7]]);
+      const country = p.nationality === 'ישראל' ? pick(COUNTRIES)
+        : pickW([[p.nationality, 55], [pick(COUNTRIES), 45]]);
+      const stay = pickW([[iRnd(1, 4), 26], [iRnd(5, 12), 38], [iRnd(13, 30), 24], [iRnd(31, 120), 12]]);
+      const exitAt = addDays(entry, stay);
+      const openStay = exitAt > DATA_TO || R() < .045;   // נכנס ולא יצא
+
+      const base = { ...p, srcId, country, tripId: 'T' + uid() };
+      recs.push(mkRecord(base, 'כניסה', entry, seq++));
+      if (!openStay) recs.push(mkRecord(base, 'יציאה', exitAt, seq++));
+    }
+  }
+  recs.sort((a, b) => a.dt - b.dt);
+  return recs;
+}
+
+function mkRecord(b, dir, day, seq) {
+  const src = SOURCES[b.srcId];
+  const dt = new Date(day.getFullYear(), day.getMonth(), day.getDate(), iRnd(0, 23), iRnd(0, 59));
+  const air = b.srcId === 'local_air' || b.srcId === 'foreign_air';
+  const carrier = b.srcId === 'local_air' ? pick(CARRIERS_LOCAL) : b.srcId === 'foreign_air' ? pick(CARRIERS_FOREIGN) : NA;
+  // פערים מדומים לפי KNOWN_GAPS
+  const inGapPeriod = b.srcId === 'foreign_air' && dt >= new Date(2026, 0, 1) && dt <= new Date(2026, 1, 15);
+  const natMissing = b.srcId === 'sea' && R() < .12;
+  return {
+    id: 'R' + String(100000 + seq),
+    pid: b.pid, tripId: b.tripId,
+    dt, dtLabel: fDT(dt), dateLabel: fDate(dt), timeLabel: fTime(dt),
+    dir: dir === 'כניסה' ? 'in' : 'out', dirLabel: dir,
+    srcId: b.srcId, srcLabel: src.label, typeLabel: src.type,
+    crossing: pick(CROSSINGS[b.srcId]),
+    nameHe: b.nameHe, nameLat: b.nameLat,
+    nationality: natMissing ? NA : b.nationality,
+    birthYear: b.birthYear, gender: b.gender,
+    docType: inGapPeriod && R() < .4 ? NA : b.docType,
+    docNo: b.docNo,
+    carrier: air ? carrier : NA,
+    flightNo: air ? (b.srcId === 'local_air' ? 'LY' : pick(['TK','LH','A3','W6','FR','EY'])) + iRnd(100, 999) : NA,
+    vessel: b.srcId === 'sea' ? pick(['אנטליה סטאר','בלו וייב','אגאון','קרוז מרין','לימסול פרל']) + ' ' + iRnd(2, 9) : NA,
+    plate: b.srcId === 'land' ? String(iRnd(10, 99)) + '-' + iRnd(100, 999) + '-' + iRnd(10, 99) : NA,
+    country: b.country,
+    purpose: (b.srcId === 'local_air' || b.srcId === 'land') ? pick(PURPOSES) : NA,
+    _gapPeriod: inGapPeriod
+  };
+}
+
+const PEOPLE  = buildPeople(2200);
+const RECORDS = buildRecords(PEOPLE);
+const PEOPLE_BY_ID = Object.fromEntries(PEOPLE.map(p => [p.pid, p]));
+
+/* מי נמצא כרגע במדינה — נתון מחושב (🔢) */
+const PRESENCE = (() => {
+  const last = {};
+  for (const r of RECORDS) last[r.pid] = r;
+  return Object.values(last).filter(r => r.dir === 'in').map(r => r.pid);
+})();
+const PRESENT_SET = new Set(PRESENCE);
+
+/* רשימת נמענים סגורה לדו"חות מתוזמנים (F10) */
+const EMPLOYEES = [
+  { id:'e1', name:'רוני כהן',    role:'חוקר שטח — ימ"ר מרכז' },
+  { id:'e2', name:'מיכל לוי',    role:'אנליסטית — אגף מודיעין' },
+  { id:'e3', name:'דנה אבידן',   role:'מנהלת מוצר — אגף טכנולוגיות' },
+  { id:'e4', name:'עומר שרעבי',  role:'ראש צוות חקירות' },
+  { id:'e5', name:'תמר בן-חיים', role:'קצינת מודיעין — גבולות' },
+  { id:'e6', name:'איציק דהן',   role:'חוקר שטח — ימ"ר צפון' },
+  { id:'e7', name:'נועה גרשון',  role:'אנליסטית — יחידת גבולות' },
+  { id:'e8', name:'סמי אבו-רביע',role:'חוקר שטח — ימ"ר דרום' }
+];
+const USERS = {
+  field:   { name:'רוני כהן',  role:'חוקר שטח',   initials:'רכ' },
+  analyst: { name:'מיכל לוי',  role:'אנליסטית',   initials:'מל' },
+  pm:      { name:'דנה אבידן', role:'מנהלת מוצר', initials:'דא' }
+};
+let CURRENT_ROLE = 'field';
+const me = () => USERS[CURRENT_ROLE];
+</script>
+<script>
+/* ============================================================================
+   מודול 2: הבנת השאלה (F1), דיאלוג הבהרה (F2), מנוע השאילתות
+   ============================================================================ */
+
+/* ---------- מילוני זיהוי ---------- */
+const KW = {
+  in:  ['כניסות','כניסה','נכנסו','נכנס','נכנסים','הגיעו','הגעות'],
+  out: ['יציאות','יציאה','יצאו','יצא','יוצאים','עזבו'],
+  air: ['אווירי','אוויריים','טיסות','טיסה','שדה תעופה','נמל תעופה','טרמינל','אוויר'],
+  land:['יבשתי','יבשתיים','ביבשה','מעבר יבשתי','מעברים יבשתיים','רכב','גשר'],
+  sea: ['ימי','ימיים','בים','נמל ימי','אונייה','אוניה','מרינה','כלי שיט','שיט'],
+  localCarrier:  ['חברת תעופה מקומית','חברה מקומית','המוביל המקומי','מקומית'],
+  foreignCarrier:['חברות זרות','חברה זרה','חברות תעופה זרות','זרות','זרה'],
+  present: ['נמצאים כרגע','נמצא כרגע','נמצאים במדינה','נמצא במדינה','כרגע במדינה','כרגע בארץ','נוכחים','שוהים כרגע','נמצאים עכשיו'],
+  noExit:  ['נכנסו ולא יצאו','נכנס ולא יצא','לא יצאו','ללא יציאה','לא רשומה יציאה','שוהים מעל'],
+  trend:   ['מגמה','מגמת','לאורך זמן','לפי חודש','לפי חודשים','ציר זמן','התפלגות לפי זמן','לפי יום','יומית','גרף'],
+  top:     ['הנפוצות','הנפוצים','המובילות','המובילים','העמוסים','העמוסות','טופ','top','הגדולות','המרכזיים','שיא'],
+  multi:   ['פילוח מרובה','לפי חודש ולפי','כניסות ויציאות','כניסות מול יציאות','השוואה בין כניסות'],
+  compare: ['השוואה','להשוות','מול','לעומת','פילוח','התפלגות','חלוקה']
+};
+const GROUPS = [
+  { g:'nationality', kws:['לפי אזרחות','אזרחות','לפי לאום','לאום','לפי אזרחויות'] },
+  { g:'country',     kws:['לפי מדינת מקור','לפי מדינת יעד','לפי מדינה','לפי מדינות','מדינת מקור','מדינת יעד'] },
+  { g:'typeLabel',   kws:['לפי סוג מעבר','סוג מעבר','לפי סוגי מעבר','לפי אמצעי','לפי סוג'] },
+  { g:'crossing',    kws:['לפי נקודת מעבר','לפי מעבר גבול','לפי מעברים','נקודות מעבר','לפי מעבר','לפי טרמינל'] },
+  { g:'carrier',     kws:['לפי חברת תעופה','לפי חברה','חברות התעופה','לפי מוביל','לפי חברות'] },
+  { g:'month',       kws:['לפי חודש','לפי חודשים','לאורך זמן','מגמה','מגמת','ציר זמן'] },
+  { g:'day',         kws:['לפי יום','לפי ימים','יומי','יומית'] },
+  { g:'gender',      kws:['לפי מין','לפי מגדר','מין'] },
+  { g:'ageBand',     kws:['לפי גיל','לפי גילאים','קבוצות גיל','לפי קבוצת גיל'] },
+  { g:'purpose',     kws:['לפי מטרת נסיעה','לפי מטרה','מטרת הנסיעה'] },
+  { g:'dirLabel',    kws:['לפי כיוון','כניסות ויציאות','כניסות מול יציאות'] },
+  { g:'srcLabel',    kws:['לפי מקור','לפי מקור נתונים','לפי מערכת'] }
+];
+const GROUP_LABELS = {
+  nationality:'אזרחות', country:'מדינת מקור/יעד', typeLabel:'סוג מעבר', crossing:'נקודת מעבר',
+  carrier:'חברת תעופה', month:'חודש', day:'יום', gender:'מין', ageBand:'קבוצת גיל',
+  purpose:'מטרת נסיעה', dirLabel:'כיוון', srcLabel:'מקור נתונים'
+};
+
+/* שאלות שהמערכת אינה יכולה לענות עליהן — שכבת הנתונים לא כוללת את המידע (F11) */
+const OUT_OF_SCOPE = [
+  { kws:['פלילי','עבר פלילי','תיקים','מב"ד','הרשעות','מעצרים'], missing:'רשומות פליליות ותיקי חקירה — אינן חלק משכבת נתוני הכניסה והיציאה' },
+  { kws:['טלפון','מספר טלפון','שיחות','סלולרי','אנטנות','מיקום סלולרי'], missing:'נתוני תקשורת ואיכון — אינם במערכת' },
+  { kws:['רכב','לוחית','מצלמות','צפו','תנועה בכבישים'], missing:'נתוני תנועה פנים-ארציים ומצלמות כבישים — אינם במערכת (נתוני רכב קיימים רק ברגע מעבר הגבול)' },
+  { kws:['בית מלון','מלונות','לינה','כתובת','היכן התגורר','מקום מגורים'], missing:'נתוני שהייה ולינה במדינה — אינם במערכת' },
+  { kws:['כספים','העברות כספים','חשבון בנק','כרטיס אשראי','ארנק'], missing:'נתונים פיננסיים — אינם במערכת' },
+  { kws:['חיזוי','צפי','תחזית','יחזה','סיכוי ש','הסתברות','ניקוד סיכון','דירוג חשד','חשוד יותר'], missing:'מודלי חיזוי והערכת סיכון — אינם קיימים בשכבת הנתונים הנוכחית (V1 מציג נתונים קיימים בלבד)' },
+  { kws:['קשר בין','רשת קשרים','מי הסתובב','נסעו יחד','ביחד באותה טיסה עם','קרבה משפחתית','משפחה של'], missing:'ניתוח רשתות קשרים בין נוסעים — מחייב שכבת חישוב שאינה קיימת ב-V1' },
+  { kws:['תמונה','תמונות','זיהוי פנים','טביעות אצבע','ביומטרי'], missing:'נתונים ביומטריים ותצלומים — אינם במערכת' },
+  { kws:['ויזה','אשרה','סירוב כניסה','הרחקה','משמורת'], missing:'החלטות אשרה, סירובי כניסה והרחקות — מנוהלים במערכת רשות האוכלוסין ואינם מסונכרנים ל-V1' }
+];
+
+/* אירועים/מלחמות ללא תאריך — חובה להבהיר (אין ברירת מחדל) */
+const EVENT_WORDS = ['מלחמת','מלחמה','המלחמה','מבצע','האירועים','הסבב','המערכה','אינתיפאדה','הקורונה','הסגר'];
+const VAGUE_PERIOD = ['לאחרונה','בזמן האחרון','בתקופה האחרונה','בעת האחרונה','בימים האחרונים','לא מזמן'];
+
+/* ---------- פירוק תקופה ---------- */
+function parsePeriod(q) {
+  const m2 = q.match(/(\d{1,2})[./](\d{1,2})[./](\d{2,4})\s*(?:עד|ל-|ל |–|-)\s*(\d{1,2})[./](\d{1,2})[./](\d{2,4})/);
+  if (m2) {
+    const y1 = +m2[3] < 100 ? 2000 + +m2[3] : +m2[3], y2 = +m2[6] < 100 ? 2000 + +m2[6] : +m2[6];
+    const from = new Date(y1, +m2[2] - 1, +m2[1]), to = new Date(y2, +m2[5] - 1, +m2[4], 23, 59);
+    return { from, to, label:`${fDate(from)}–${fDate(to)}` };
+  }
+  const mi = MONTHS_HE.findIndex(mn => new RegExp('(?:^|\\s|ב)' + mn).test(q));
+  if (mi >= 0) {
+    const my = q.match(/\b(20\d{2})\b/);
+    const y = my ? +my[1] : (mi > NOW.getMonth() ? 2025 : 2026);
+    const from = new Date(y, mi, 1), to = new Date(y, mi + 1, 0, 23, 59);
+    return { from, to, label:`${MONTHS_HE[mi]} ${y}` };
+  }
+  if (/(?:^|\s)(?:בשנת|בשנה)\s*(20\d{2})|(?:^|\s)ב-?(20\d{2})(?!\d)/.test(q)) {
+    const y = +(q.match(/(20\d{2})/)[1]);
+    return { from:new Date(y, 0, 1), to:new Date(y, 11, 31, 23, 59), label:`שנת ${y}` };
+  }
+  if (/השבוע האחרון|בשבוע האחרון|7 הימים/.test(q)) return { from:addDays(NOW, -7), to:NOW, label:'7 הימים האחרונים' };
+  if (/החודש האחרון|בחודש האחרון|30 הימים/.test(q)) return { from:addDays(NOW, -30), to:NOW, label:'30 הימים האחרונים' };
+  if (/הרבעון האחרון|ברבעון האחרון|90 הימים|3 החודשים/.test(q)) return { from:addDays(NOW, -90), to:NOW, label:'90 הימים האחרונים' };
+  if (/השנה האחרונה|בשנה האחרונה|12 החודשים/.test(q)) return { from:addDays(NOW, -365), to:NOW, label:'12 החודשים האחרונים' };
+  if (/מתחילת השנה|השנה\b/.test(q)) return { from:new Date(2026, 0, 1), to:NOW, label:'מתחילת 2026' };
+  if (/אתמול/.test(q)) { const d = addDays(NOW, -1);
+    return { from:new Date(d.getFullYear(), d.getMonth(), d.getDate()), to:new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59), label:`אתמול (${fDate(d)})` }; }
+  if (/היום\b/.test(q)) return { from:new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate()), to:NOW, label:`היום (${fDate(NOW)})` };
+  return null;
+}
+
+/* ---------- זיהוי שם אדם ---------- */
+function findPerson(q) {
+  const quoted = q.match(/["״'׳]([^"״'׳]{3,40})["״'׳]/);
+  const cand = [];
+  if (quoted) cand.push(quoted[1].trim());
+  const ofName = q.match(/\bשל\s+([֐-׿׳'\- ]{3,40}?)(?=\s*(?:ב|מ|ל|בין|לפי|בשנת|בחודש|\?|$))/);
+  if (ofName) cand.push(ofName[1].trim());
+  for (const c of cand) {
+    const parts = c.split(/\s+/).filter(w => w.length > 1);
+    const hits = PEOPLE.filter(p => parts.every(w => p.nameHe.includes(w) || p.nameLat.includes(w.toUpperCase())));
+    if (hits.length) return { text:c, parts, matches:hits };
+  }
+  // התאמה ישירה לשם מלא שמופיע בשאלה
+  for (const p of PEOPLE) if (q.includes(p.nameHe)) return { text:p.nameHe, parts:p.nameHe.split(' '), matches:[p] };
+  // שם יחיד מוכר (פרטי או משפחה) — עמימות
+  const words = q.replace(/[?.,]/g, ' ').split(/\s+/);
+  for (const w of words) {
+    if (w.length < 3) continue;
+    if (FIRST_HE.includes(w) || LAST_HE.includes(w)) {
+      const hits = PEOPLE.filter(p => p.nameHe.split(' ').includes(w));
+      if (hits.length) return { text:w, parts:[w], matches:hits, single:true };
+    }
+  }
+  return null;
+}
+
+/* התאמת מילת מפתח ברמת מילה שלמה (עם תחיליות וסופיות עבריות),
+   כדי שמילה כמו "צפוני" לא תיחשב כ"צפו" ו"הימים" לא ייחשב כ"ימי" */
+const HE_PREFIX = ['', 'ה','ו','ב','ל','מ','ש','כ','וה','בה','לה','מה','שה','וב','ול','ומ','מה'];
+const HE_SUFFIX = ['', 'ים','ות','י','יים','ה'];
+const tokenize = q => q.split(/[^\p{L}\p{N}׳'׳\-]+/u).filter(Boolean);
+function kwHit(q, kw, toks) {
+  if (/\s/.test(kw)) return q.includes(kw);          // ביטוי מרובה מילים — התאמת מחרוזת
+  for (const t of toks) for (const p of HE_PREFIX) for (const s of HE_SUFFIX) if (t === p + kw + s) return true;
+  return false;
+}
+
+/* ---------- פירוק שאלה ---------- */
+function parseQuestion(raw) {
+  const q = ' ' + raw.replace(/\s+/g, ' ').trim() + ' ';
+  const toks = tokenize(q);
+  const hasKw = k => kwHit(q, k, toks);
+  const has = list => list.some(hasKw);
+  const spec = {
+    raw: raw.trim(), dir:null, types:null, srcIds:null, period:null, groups:[], topN:null,
+    person:null, mode:'count', clarify:[], defaults:[], outOfScope:null
+  };
+
+  // מחוץ לתחולה (F11)
+  for (const o of OUT_OF_SCOPE) if (o.kws.some(hasKw)) { spec.outOfScope = o; return spec; }
+
+  // כיוון
+  if (has(KW.in) && has(KW.out)) spec.dir = null;
+  else if (has(KW.in)) spec.dir = 'in';
+  else if (has(KW.out)) spec.dir = 'out';
+
+  // סוג מעבר / מקור
+  const types = [];
+  if (has(KW.air)) types.push('אווירי');
+  if (has(KW.land)) types.push('יבשתי');
+  if (has(KW.sea)) types.push('ימי');
+  if (types.length) spec.types = types;
+  if (has(KW.foreignCarrier) && !has(KW.localCarrier)) spec.srcIds = ['foreign_air'];
+  else if (has(KW.localCarrier) && !has(KW.foreignCarrier)) spec.srcIds = ['local_air'];
+
+  // נקודת מעבר מסוימת שהוזכרה בשם
+  const ALL_CROSSINGS = Array.from(new Set(Object.values(CROSSINGS).flat()));
+  spec.crossing = ALL_CROSSINGS.find(c => q.includes(c)) || null;
+  if (spec.crossing) spec.types = null;   // שם מפורש של נקודת מעבר גובר על סוג
+
+  // אזרחות מפורשת ("אזרחי ירדן", "אזרחות טורקיה")
+  const natM = q.match(/(?:אזרחי|אזרחות|נתיני)\s+([^\s?,.]+(?:\s+[^\s?,.]+)?)/);
+  if (natM) {
+    const cand = natM[1].trim();
+    spec.nationality = NATIONALITIES.map(n => n[0]).find(n => cand.startsWith(n) || n.startsWith(cand)) || null;
+  }
+
+  // תקופה
+  spec.period = parsePeriod(q);
+
+  // קיבוץ
+  for (const G of GROUPS) if (G.kws.some(hasKw) && !spec.groups.includes(G.g)) spec.groups.push(G.g);
+  if (has(KW.trend) && !spec.groups.includes('month') && !spec.groups.includes('day')) spec.groups.unshift('month');
+  // ציר זמן אחד בלבד — הרזולוציה העדינה מנצחת ("מגמה יומית" → יום, לא חודש × יום)
+  if (spec.groups.includes('month') && spec.groups.includes('day')) spec.groups = spec.groups.filter(g => g !== 'month');
+  const timeG = spec.groups.find(g => g === 'month' || g === 'day');
+  if (timeG && spec.groups.length > 1) {                          // ציר הזמן הוא הציר הראשי
+    spec.groups = [timeG, ...spec.groups.filter(g => g !== timeG)].slice(0, 2);
+  }
+  spec.groups = spec.groups.slice(0, 2);
+
+  // פילוח לפי שדה שקיים רק בחלק מהמקורות — הגבלת ההיקף למקורות שמדווחים אותו
+  const ONLY = { carrier:'אווירי', flightNo:'אווירי', vessel:'ימי', plate:'יבשתי' };
+  for (const g of spec.groups) {
+    if (ONLY[g] && !spec.types) {
+      spec.types = [ONLY[g]];
+      spec.autoScope = `הפילוח לפי ${GROUP_LABELS[g] || g} רלוונטי רק למעברים ${TYPE_PLURAL[ONLY[g]]} — ההיקף הוגבל אליהם`;
+    }
+  }
+
+  // Top-N — כולל היסק ציר הפילוח מנוסח השאלה
+  if (has(KW.top)) {
+    const n = q.match(/(?:^|\s)(\d{1,2})(?!\d|[./])/);
+    spec.topN = n && +n[1] <= 50 ? +n[1] : 10;
+    if (!spec.groups.length) {
+      if (/נקודות המעבר|נקודת מעבר|המעברים|מעברים העמוסים|טרמינל/.test(q)) spec.groups = ['crossing'];
+      else if (/חברות התעופה|חברת תעופה|חברות תעופה|מובילים/.test(q)) spec.groups = ['carrier'];
+      else if (/מדינות|מדינת/.test(q)) spec.groups = ['country'];
+      else spec.groups = ['nationality'];
+    }
+  }
+
+  // מצבים מיוחדים
+  spec.person = findPerson(q);
+  if (has(KW.present)) spec.mode = 'present';
+  else if (has(KW.noExit)) spec.mode = 'noexit';
+  else if (spec.person) spec.mode = 'person';
+  else if (spec.groups.length === 2) spec.mode = 'stacked';
+  else if (spec.groups.length === 1) spec.mode = spec.groups[0] === 'month' || spec.groups[0] === 'day' ? 'trend' : 'breakdown';
+  else spec.mode = 'count';
+
+  /* ----- טריגרים לדיאלוג הבהרה (F2) ----- */
+  // 1. שם אירוע/מלחמה ללא תאריכים — חובה להבהיר, ללא ברירת מחדל
+  if (EVENT_WORDS.some(hasKw) && !spec.period) {
+    const isLeb = /לבנון/.test(q);
+    spec.clarify.push({
+      id:'event', required:true,
+      q: isLeb ? 'התכוונת לתקופת מלחמת לבנון השנייה (יולי–אוגוסט 2006)? אם לא — ציין תאריכים מדויקים.'
+               : 'לאיזו תקופה מדויקת הכוונה? שמות אירועים אינם מתורגמים אוטומטית לתאריכים — נדרשים תאריכי התחלה וסיום.',
+      why:'שם אירוע אינו מזוהה כתקופה במערכת. אין ברירת מחדל — חובה להבהיר.',
+      options:[
+        { label:'יולי–אוגוסט 2026', value:{ from:new Date(2026,6,1), to:new Date(2026,7,9,23,59), label:'יולי–אוגוסט 2026' } },
+        { label:'ינואר–מרץ 2026',  value:{ from:new Date(2026,0,1), to:new Date(2026,2,31,23,59), label:'ינואר–מרץ 2026' } },
+        { label:'12 החודשים האחרונים', value:{ from:addDays(NOW,-365), to:NOW, label:'12 החודשים האחרונים' } }
+      ],
+      free:'הזן טווח תאריכים, לדוגמה: 1/7/2026 עד 31/8/2026',
+      apply:(s, v) => { s.period = v; }
+    });
+  }
+  // 2. תקופה עמומה — ברירת מחדל 30 יום
+  else if (VAGUE_PERIOD.some(w => q.includes(w)) && !spec.period) {
+    spec.clarify.push({
+      id:'vague', required:false,
+      q:'כמה זמן אחורה לחפש?', why:'הביטוי "לאחרונה" אינו מוגדר. ברירת המחדל: 30 הימים האחרונים.',
+      options:[
+        { label:'שבוע', value:{ from:addDays(NOW,-7), to:NOW, label:'7 הימים האחרונים' } },
+        { label:'חודש (ברירת מחדל)', value:{ from:addDays(NOW,-30), to:NOW, label:'30 הימים האחרונים' } },
+        { label:'שנה', value:{ from:addDays(NOW,-365), to:NOW, label:'12 החודשים האחרונים' } }
+      ],
+      def:{ from:addDays(NOW,-30), to:NOW, label:'30 הימים האחרונים' },
+      defText:'תקופה: 30 הימים האחרונים',
+      apply:(s, v) => { s.period = v; }
+    });
+  }
+  // 3. שם שניתן לפרש בכמה דרכים — ברירת מחדל: שניהם
+  if (spec.person && spec.person.single) {
+    spec.clarify.push({
+      id:'name', required:false,
+      q:`"${spec.person.text}" — הכוונה לשם פרטי, שם משפחה, או שניהם?`,
+      why:'השם מופיע גם כשם פרטי וגם כשם משפחה בנתונים. ברירת המחדל: חיפוש בשניהם.',
+      options:[
+        { label:'שם פרטי', value:'first' }, { label:'שם משפחה', value:'last' },
+        { label:'שניהם (ברירת מחדל)', value:'both' }
+      ],
+      def:'both', defText:'חיפוש השם גם כשם פרטי וגם כשם משפחה',
+      apply:(s, v) => { s.nameScope = v; }
+    });
+  }
+  // 4. סוג מעבר לא מפורט — ברירת מחדל: כל הסוגים
+  if (!spec.types && !spec.crossing && /מעבר|מעברים|גבול|גבולות/.test(q)) {
+    spec.clarify.push({
+      id:'type', required:false,
+      q:'לחפש בכל סוגי המעברים, או רק אווירי / יבשתי / ימי?',
+      why:'לא צוין סוג מעבר. ברירת המחדל: כל סוגי המעברים.',
+      options:[
+        { label:'כל הסוגים (ברירת מחדל)', value:null }, { label:'אווירי', value:['אווירי'] },
+        { label:'יבשתי', value:['יבשתי'] }, { label:'ימי', value:['ימי'] }
+      ],
+      def:null, defText:'כל סוגי המעברים (אווירי + יבשתי + ימי)',
+      apply:(s, v) => { s.types = v; }
+    });
+  }
+  return spec;
+}
+
+/* ============================================================================
+   מנוע השאילתות — הרצה מול הנתונים הסינתטיים
+   ============================================================================ */
+const AGE_BANDS = [[0,17,'עד 17'],[18,29,'18–29'],[30,44,'30–44'],[45,59,'45–59'],[60,199,'60+']];
+const ageBandOf = r => { const a = 2026 - r.birthYear; const b = AGE_BANDS.find(x => a >= x[0] && a <= x[1]); return b ? b[2] : NA; };
+const keyOf = (r, g) => {
+  switch (g) {
+    case 'month': return monthKey(r.dt);
+    case 'day': return dayKey(r.dt);
+    case 'ageBand': return ageBandOf(r);
+    case 'gender': return r.gender === 'ז' ? 'זכר' : 'נקבה';
+    default: return r[g] ?? NA;
+  }
+};
+const labelOf = (k, g) => g === 'month' ? monthLabel(k) : g === 'day' ? k.split('-').reverse().join('/') : k;
+
+function filterRecords(spec) {
+  return RECORDS.filter(r => {
+    if (spec.dir && r.dir !== spec.dir) return false;
+    if (spec.types && !spec.types.includes(r.typeLabel)) return false;
+    if (spec.srcIds && !spec.srcIds.includes(r.srcId)) return false;
+    if (spec.crossing && r.crossing !== spec.crossing) return false;
+    if (spec.nationality && r.nationality !== spec.nationality) return false;
+    if (spec.period && (r.dt < spec.period.from || r.dt > spec.period.to)) return false;
+    if (spec.person) {
+      const scope = spec.nameScope || 'both';
+      const parts = spec.person.parts;
+      const [first, last] = r.nameHe.split(' ');
+      const ok = parts.every(w =>
+        scope === 'first' ? first.includes(w) :
+        scope === 'last'  ? (last || '').includes(w) :
+        r.nameHe.includes(w) || r.nameLat.includes(w.toUpperCase()));
+      if (!ok) return false;
+    }
+    return true;
+  });
+}
+
+function bucketize(recs, g, topN) {
+  const map = new Map();
+  for (const r of recs) {
+    const k = keyOf(r, g);
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(r);
+  }
+  let arr = Array.from(map, ([k, rs]) => ({ key:k, label:labelOf(k, g), value:rs.length, recs:rs }));
+  if (g === 'month' || g === 'day') arr.sort((a, b) => a.key < b.key ? -1 : 1);
+  else arr.sort((a, b) => b.value - a.value);
+  if (topN && arr.length > topN) {
+    const head = arr.slice(0, topN), tail = arr.slice(topN);
+    const other = { key:'__other', label:'אחר', value:tail.reduce((s, b) => s + b.value, 0),
+                    recs:tail.flatMap(b => b.recs), other:true, groups:tail.length };
+    arr = other.value ? [...head, other] : head;
+  }
+  return arr;
+}
+
+/* מחוון אמינות (F6) */
+function reliability(recs, spec, computed) {
+  const details = [];
+  const srcIn = new Set(recs.map(r => r.srcId));
+  const scopeHasForeign = !spec.srcIds || spec.srcIds.includes('foreign_air');
+  const periodOverlapsGap = !spec.period ||
+    (spec.period.from <= new Date(2026, 1, 15) && spec.period.to >= new Date(2026, 0, 1));
+  if (scopeHasForeign && periodOverlapsGap && (!spec.types || spec.types.includes('אווירי'))) {
+    details.push(KNOWN_GAPS[0].text);
+  }
+  if (srcIn.has('sea') && spec.groups && spec.groups.includes('nationality')) details.push(KNOWN_GAPS[1].text);
+  if (spec.groups && spec.groups.includes('purpose')) details.push(KNOWN_GAPS[2].text);
+  if (computed) {
+    return { level:'calc', icon:'🔢', label:'מחושב',
+      text:'התשובה כוללת ערכים שחושבו או הוסקו מהנתונים (למשל ממוצע, מגמה או הצמדת כניסה ליציאה) ואינם נתון ישיר מהמקור.',
+      details };
+  }
+  if (details.length) {
+    return { level:'warn', icon:'⚠️', label:'חלקי',
+      text:'חלק מהנתונים חסרים ממקור ספציפי — התוצאה עשויה להיות נמוכה מהמצב האמיתי.', details };
+  }
+  return { level:'ok', icon:'✅', label:'מלא',
+    text:'הנתונים נשלפו מכל המקורות הרלוונטיים לשאלה, ללא פערים ידועים.', details:[] };
+}
+
+const dirWord = d => d === 'in' ? 'כניסות' : d === 'out' ? 'יציאות' : 'מעברים';
+const TYPE_PLURAL = { 'אווירי':'אוויריים', 'יבשתי':'יבשתיים', 'ימי':'ימיים' };
+const bePrefix = s => /^[0-9]/.test(s) ? 'ב-' + s : 'ב' + s;   // "ב-12 החודשים" / "ביוני 2026"
+function scopeText(spec) {
+  const bits = [];
+  bits.push(dirWord(spec.dir));
+  if (spec.types) bits.push(spec.types.length === 3 ? 'בכל סוגי המעברים'
+    : 'במעברים ' + spec.types.map(t => TYPE_PLURAL[t] || t).join(' / '));
+  if (spec.srcIds) bits.push('דרך ' + spec.srcIds.map(s => SOURCES[s].short).join(' + '));
+  if (spec.crossing) bits.push('ב' + spec.crossing);
+  if (spec.nationality) bits.push('של אזרחי ' + spec.nationality);
+  if (spec.period) bits.push(bePrefix(spec.period.label));
+  else bits.push('בכל התקופה הזמינה (08/2025–08/2026)');
+  return bits.join(' ');
+}
+const FIELDS_BASE = ['dtLabel','dirLabel','typeLabel','crossing','nameHe','nameLat','nationality'];
+function fieldsFor(spec) {                      // F5 — שדות רלוונטיים לשאלה בלבד
+  const f = [...FIELDS_BASE];
+  const g = spec.groups || [];
+  if (g.includes('carrier') || (spec.types && spec.types.includes('אווירי')) || spec.srcIds) f.push('carrier','flightNo');
+  if (spec.types && spec.types.includes('ימי')) f.push('vessel');
+  if (spec.types && spec.types.includes('יבשתי')) f.push('plate');
+  if (g.includes('country')) f.push('country');
+  if (g.includes('purpose')) f.push('purpose');
+  if (g.includes('ageBand')) f.push('birthYear');
+  if (g.includes('gender')) f.push('gender');
+  if (spec.person) f.push('country','purpose','docType','docNo','birthYear');
+  return Array.from(new Set(f));
+}
+
+function runQuery(spec) {
+  const t0 = performance.now();
+  if (spec.outOfScope) {
+    return { mode:'unanswered', spec, missing:spec.outOfScope.missing, title:spec.raw.slice(0, 70), latency:0.7 + R() * .5 };
+  }
+  const res = { spec, latency:0.6 + R() * 1.6, notes:[], kpis:[] };
+  if (spec.autoScope) res.notes.push(spec.autoScope);
+  const g = spec.groups;
+  // רזולוציית ציר הזמן נגזרת מאורך התקופה
+  const spanDays = spec.period ? (spec.period.to - spec.period.from) / 864e5 : 999;
+  const timeGroup = spanDays <= 45 ? 'day' : 'month';
+  const timeLabel = timeGroup === 'day' ? 'יום' : 'חודש';
+
+  if (spec.mode === 'present' || spec.mode === 'noexit') {
+    const openRecs = RECORDS.filter(r => r.dir === 'in' && PRESENT_SET.has(r.pid) &&
+      (!spec.types || spec.types.includes(r.typeLabel)) &&
+      (!spec.crossing || r.crossing === spec.crossing) &&
+      (!spec.nationality || r.nationality === spec.nationality) &&
+      (!spec.period || (r.dt >= spec.period.from && r.dt <= spec.period.to)));
+    const lastIn = new Map();
+    for (const r of openRecs) if (!lastIn.has(r.pid) || r.dt > lastIn.get(r.pid).dt) lastIn.set(r.pid, r);
+    const recs = Array.from(lastIn.values());
+    const gb = g.find(x => x !== 'month') || 'nationality';
+    const buckets = bucketize(recs, gb, 10);
+    res.mode = 'breakdown';
+    const scopeBits = [
+      spec.types ? 'שנכנסו במעברים ' + spec.types.map(t => TYPE_PLURAL[t] || t).join(' / ') : null,
+      spec.period ? 'שנכנסו ' + bePrefix(spec.period.label) : null
+    ].filter(Boolean).join(', ');
+    res.headline = `<strong>${num(recs.length)}</strong> אנשים${scopeBits ? ' ' + scopeBits : ''} רשומים כנוכחים במדינה — נכנסו ואין להם רשומת יציאה.`;
+    res.subline = `מתוך ${num(PEOPLE.length)} אנשים בנתונים · ${num(PRESENCE.length)} נוכחים בסך הכל (כל סוגי המעברים) · ` +
+      `חושב לפי הרשומה האחרונה לכל אדם · עדכון לתאריך ${fDate(NOW)}`;
+    res.chart = { type:'bars', buckets, xLabel:GROUP_LABELS[gb], valueLabel:'אנשים' };
+    res.groupBy = gb;
+    res.records = recs; res.fields = ['dtLabel','crossing','typeLabel','nameHe','nameLat','nationality','birthYear','country','docNo'];
+    res.kpis = [
+      { v:num(recs.length), l:'נוכחים במדינה' },
+      { v:num(recs.filter(r => (NOW - r.dt) / 864e5 > 90).length), l:'שוהים מעל 90 יום' },
+      { v:num(new Set(recs.map(r => r.nationality)).size), l:'אזרחויות שונות' }
+    ];
+    res.notes.push('הנתון מחושב: אין שדה "נוכחות" במקור — הוא נגזר מהצמדת כניסה ליציאה לכל אדם.');
+    res.reliability = reliability(recs, { ...spec, groups:[gb] }, true);
+    res.title = 'נוכחים במדינה — פילוח לפי ' + GROUP_LABELS[gb];
+    res.exec = performance.now() - t0;
+    return res;
+  }
+
+  const recs = filterRecords(spec);
+
+  if (spec.mode === 'person') {
+    const byPid = new Map();
+    for (const r of recs) { if (!byPid.has(r.pid)) byPid.set(r.pid, []); byPid.get(r.pid).push(r); }
+    const names = Array.from(byPid.keys()).map(p => PEOPLE_BY_ID[p]);
+    const ins = recs.filter(r => r.dir === 'in').length, outs = recs.length - ins;
+    const present = names.filter(p => PRESENT_SET.has(p.pid)).length;
+    const buckets = bucketize(recs, 'month');
+    res.mode = 'person';
+    res.headline = names.length === 1
+      ? `ל<strong>${esc(names[0].nameHe)}</strong> נרשמו ${num(recs.length)} מעברי גבול בתקופה הנבדקת.`
+      : `נמצאו <strong>${num(recs.length)}</strong> מעברי גבול של ${num(names.length)} אנשים שהשם "${esc(spec.person.text)}" מתאים להם.`;
+    res.subline = `${num(ins)} כניסות · ${num(outs)} יציאות · ${scopeText({ ...spec, dir:null })}` +
+      (names.length === 1 ? ` · אזרחות: ${esc(names[0].nationality)} · שנת לידה: ${names[0].birthYear}` : '');
+    res.chart = { type:'line', buckets, xLabel:'חודש', valueLabel:'מעברים' };
+    res.groupBy = 'month';
+    res.records = recs.slice().sort((a, b) => b.dt - a.dt);
+    res.fields = fieldsFor(spec);
+    res.kpis = [
+      { v:num(recs.length), l:'סה"כ מעברים' }, { v:num(ins), l:'כניסות' }, { v:num(outs), l:'יציאות' },
+      { v:num(names.length), l:'אנשים מתאימים' }, { v:present ? 'כן' : 'לא', l:'נוכח/ת כרגע במדינה' }
+    ];
+    if (names.length > 1) res.notes.push(`השם תואם ${names.length} אנשים שונים. לצמצום — הוסיפו שם מלא, אזרחות או שנת לידה לשאלה.`);
+    res.reliability = reliability(recs, spec, present > 0);
+    res.title = `תנועות של ${spec.person.text}`;
+    res.exec = performance.now() - t0;
+    return res;
+  }
+
+  const totalAll = spec.period ? RECORDS.filter(r => r.dt >= spec.period.from && r.dt <= spec.period.to).length : RECORDS.length;
+  // הקשר "X מתוך סך של Y" (F3) — מוצג רק כשיש בו מידע
+  const ctx = withPct => (!totalAll || recs.length === totalAll) ? ''
+    : ` · ${num(recs.length)} מתוך סך של ${num(totalAll)} רשומות בתקופה${withPct ? ` (${pct(recs.length, totalAll)}%)` : ''}`;
+
+  if (spec.mode === 'stacked') {
+    const [gA, gB] = g;
+    const catsAll = bucketize(recs, gA, gA === 'month' || gA === 'day' ? null : 8);
+    const allSeries = bucketize(recs, gB).map(b => b.key);
+    const mainKeys = allSeries.slice(0, 6);
+    const seriesKeys = allSeries.length > 6 ? [...mainKeys, '__other'] : mainKeys;
+    const inMain = new Set(mainKeys);
+    const matrix = catsAll.map(c => {
+      const cells = seriesKeys.map(sk => {
+        const rs = sk === '__other'
+          ? c.recs.filter(r => !inMain.has(keyOf(r, gB)))
+          : c.recs.filter(r => keyOf(r, gB) === sk);
+        return { key:sk, value:rs.length, recs:rs };
+      });
+      return { key:c.key, label:c.label, cells, total:c.value, recs:c.recs };
+    });
+    const top = catsAll.slice().sort((a, b) => b.value - a.value)[0];
+    res.mode = 'stacked';
+    res.headline = `נמצאו <strong>${num(recs.length)}</strong> ${dirWord(spec.dir)} בפילוח ${GROUP_LABELS[gA]} × ${GROUP_LABELS[gB]}.`;
+    res.subline = `${scopeText(spec)} · הערך הגבוה: ${esc(top ? top.label : '—')} (${num(top ? top.value : 0)})` + ctx(false);
+    res.chart = { type:'stacked', matrix, seriesKeys:seriesKeys.map(k => k === '__other' ? 'אחר' : labelOf(k, gB)), rawSeriesKeys:seriesKeys,
+                  xLabel:GROUP_LABELS[gA], seriesLabel:GROUP_LABELS[gB] };
+    res.groupBy = gA;
+    res.records = recs; res.fields = fieldsFor(spec);
+    res.kpis = [{ v:num(recs.length), l:'סה"כ רשומות' }, { v:num(catsAll.length), l:GROUP_LABELS[gA] },
+                { v:num(seriesKeys.length), l:GROUP_LABELS[gB] }];
+    res.reliability = reliability(recs, spec, false);
+    res.title = `${dirWord(spec.dir)} — ${GROUP_LABELS[gA]} לפי ${GROUP_LABELS[gB]}`;
+    res.exec = performance.now() - t0;
+    return res;
+  }
+
+  if (spec.mode === 'trend') {
+    const gb = g[0] === 'month' && spanDays <= 45 ? 'day' : g[0];
+    const buckets = bucketize(recs, gb);
+    const peak = buckets.slice().sort((a, b) => b.value - a.value)[0];
+    const avg = buckets.length ? Math.round(recs.length / buckets.length) : 0;
+    const trendTxt = buckets.length > 2
+      ? (buckets[buckets.length - 1].value >= buckets[buckets.length - 2].value ? 'עלייה' : 'ירידה') : '—';
+    res.mode = 'trend';
+    res.headline = `נרשמו <strong>${num(recs.length)}</strong> ${dirWord(spec.dir)} — השיא ${peak ? esc(bePrefix(peak.label)) : 'ב—'} עם ${num(peak ? peak.value : 0)}.`;
+    res.subline = scopeText(spec) + ctx(true);
+    res.chart = { type:'line', buckets, xLabel:GROUP_LABELS[gb], valueLabel:dirWord(spec.dir) };
+    res.groupBy = gb;
+    res.records = recs; res.fields = fieldsFor(spec);
+    res.kpis = [{ v:num(recs.length), l:'סה"כ' }, { v:num(avg), l:`ממוצע ל${gb === 'month' ? 'חודש' : 'יום'}` },
+                { v:esc(peak ? peak.label : '—'), l:'תקופת שיא' }, { v:trendTxt, l:'מגמה בסוף התקופה' }];
+    res.notes.push('הממוצע והמגמה הם ערכים מחושבים מעל הנתונים הגולמיים.');
+    res.reliability = reliability(recs, spec, true);
+    res.title = `מגמת ${dirWord(spec.dir)}${spec.period ? ' — ' + spec.period.label : ''}`;
+    res.exec = performance.now() - t0;
+    return res;
+  }
+
+  if (spec.mode === 'breakdown') {
+    const gb = g[0];
+    const buckets = bucketize(recs, gb, spec.topN || (gb === 'nationality' || gb === 'country' || gb === 'carrier' ? 10 : null));
+    const top = buckets.find(b => !b.other);
+    const useDonut = buckets.length <= 6 && gb !== 'month' && gb !== 'day';
+    res.mode = 'breakdown';
+    res.headline = `בראש הרשימה: <strong>${esc(top ? top.label : '—')}</strong> עם ${num(top ? top.value : 0)} ${dirWord(spec.dir)}` +
+      (recs.length ? ` (${pct(top ? top.value : 0, recs.length)}% מ-${num(recs.length)}).` : '.');
+    res.subline = `${scopeText(spec)} · פילוח לפי ${GROUP_LABELS[gb]}` + ctx(false);
+    res.chart = { type:useDonut ? 'donut' : 'bars', buckets, xLabel:GROUP_LABELS[gb], valueLabel:dirWord(spec.dir) };
+    res.groupBy = gb;
+    res.records = recs; res.fields = fieldsFor(spec);
+    res.kpis = [{ v:num(recs.length), l:'סה"כ' }, { v:num(buckets.filter(b => !b.other).length), l:GROUP_LABELS[gb] },
+                { v:esc(top ? top.label : '—'), l:'המוביל' }, { v:pct(top ? top.value : 0, recs.length) + '%', l:'חלקו של המוביל' }];
+    if (buckets.some(b => b.key === NA))
+      res.notes.push(`הקטגוריה "${NA}" מסמנת רשומות שבהן השדה "${GROUP_LABELS[gb]}" אינו מדווח במקור — ראו פערי הנתונים.`);
+    res.reliability = reliability(recs, spec, false);
+    res.title = `${dirWord(spec.dir)} לפי ${GROUP_LABELS[gb]}`;
+    res.exec = performance.now() - t0;
+    return res;
+  }
+
+  // ספירה פשוטה — ציר זמן כברירת מחדל לויזואליזציה (F4)
+  const buckets = bucketize(recs, timeGroup);
+  const byType = bucketize(recs, 'typeLabel');
+  res.mode = 'count';
+  res.headline = `נרשמו <strong>${num(recs.length)}</strong> ${dirWord(spec.dir)}.`;
+  res.subline = scopeText(spec) + ctx(true);
+  res.chart = { type: buckets.length <= 2 ? 'bars' : 'line', buckets, xLabel:timeLabel, valueLabel:dirWord(spec.dir) };
+  res.groupBy = timeGroup;
+  res.records = recs; res.fields = fieldsFor(spec);
+  res.kpis = [{ v:num(recs.length), l:'סה"כ רשומות' },
+    ...byType.slice(0, 3).map(b => ({ v:num(b.value), l:'מעבר ' + b.label })),
+    { v:num(new Set(recs.map(r => r.pid)).size), l:'אנשים שונים' }];
+  res.reliability = reliability(recs, spec, false);
+  res.title = `${dirWord(spec.dir)}${spec.period ? ' — ' + spec.period.label : ''}`;
+  res.exec = performance.now() - t0;
+  return res;
+}
+</script>
+<script>
+/* ============================================================================
+   מודול 3: ויזואליזציה אוטומטית (F4) + כרטיס תשובה (F3/F6) + Drill-down (F5)
+   ============================================================================ */
+const PALETTE = ['var(--c1)','var(--c2)','var(--c3)','var(--c4)','var(--c5)','var(--c6)','var(--c7)','var(--c8)'];
+const cOf = i => PALETTE[i % PALETTE.length];
+
+// סקאלה עם צעדים "עגולים" (1/2/2.5/5 × 10^k) כדי שתוויות הציר יהיו קריאות
+function niceScale(v, n = 4) {
+  if (v <= n) return { max:n, step:1 };
+  const raw = v / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 2.5, 5, 10]) {
+    const step = m * mag;
+    if (step * n >= v) return { max:step * n, step };
+  }
+  return { max:10 * mag * n, step:10 * mag };
+}
+const niceMax = v => niceScale(v).max;
+function yTicks(max, n = 4) {
+  const { step } = niceScale(max, n);
+  const out = []; for (let t = 0; t <= max + 1e-6; t += step) out.push(Math.round(t)); return out;
+}
+
+/* ציר זמן (כמות לאורך זמן) */
+function lineChart(buckets, opts = {}) {
+  const W = 860, H = 290, ml = 30, mr = 62, mt = 16, mb = 44;
+  const iw = W - ml - mr, ih = H - mt - mb;
+  const max = niceMax(Math.max(1, ...buckets.map(b => b.value)));
+  const n = buckets.length;
+  const x = i => ml + (n === 1 ? iw / 2 : i * iw / (n - 1));
+  const y = v => mt + ih - v / max * ih;
+  let g = '';
+  for (const t of yTicks(max)) g += `<line class="grid" x1="${ml}" x2="${ml + iw}" y1="${y(t)}" y2="${y(t)}"/>
+    <text x="${ml + iw + 8}" y="${y(t) + 4}" text-anchor="start">${num(t)}</text>`;
+  const pts = buckets.map((b, i) => `${x(i)},${y(b.value)}`).join(' ');
+  const area = `${ml},${mt + ih} ${pts} ${x(n - 1)},${mt + ih}`;
+  let marks = '', labels = '';
+  const step = Math.ceil(n / 14);
+  buckets.forEach((b, i) => {
+    marks += `<g class="hit" data-drill="${i}" tabindex="0" role="button" aria-label="${esc(b.label)}: ${num(b.value)}">
+      <title>${esc(b.label)} — ${num(b.value)} (לחצו לרשומות גולמיות)</title>
+      <rect x="${x(i) - iw / (n * 2 || 1) / 1}" y="${mt}" width="${Math.max(12, iw / n)}" height="${ih}" fill="transparent"/>
+      <circle cx="${x(i)}" cy="${y(b.value)}" r="4.5" fill="var(--c1)" stroke="var(--surface)" stroke-width="2"/></g>`;
+    if (i % step === 0 || i === n - 1)
+      labels += `<text x="${x(i)}" y="${mt + ih + 18}" text-anchor="middle">${esc(b.label)}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="ציר זמן: ${esc(opts.valueLabel || '')} לפי ${esc(opts.xLabel || '')}">
+    ${g}
+    <polygon points="${area}" fill="var(--c1)" opacity=".13"/>
+    <polyline points="${pts}" fill="none" stroke="var(--c1)" stroke-width="2.5" stroke-linejoin="round"/>
+    <line class="axis" x1="${ml}" x2="${ml + iw}" y1="${mt + ih}" y2="${mt + ih}"/>
+    ${marks}${labels}
+    <text x="${ml + iw + 8}" y="${mt - 4}" text-anchor="start">${esc(opts.valueLabel || '')}</text>
+  </svg>`;
+}
+
+/* עמודות (השוואת קטגוריות) */
+function barChart(buckets, opts = {}) {
+  const n = buckets.length, W = 860, H = Math.max(250, 120 + n * 4), ml = 30, mr = 62, mt = 18, mb = 62;
+  const iw = W - ml - mr, ih = H - mt - mb;
+  const max = niceMax(Math.max(1, ...buckets.map(b => b.value)));
+  const bw = Math.min(64, iw / n * .68), gap = iw / n;
+  const y = v => mt + ih - v / max * ih;
+  // בממשק RTL קטגוריות נקראות מימין לשמאל; ציר זמן נשאר משמאל לימין
+  const slot = i => opts.rtl ? n - 1 - i : i;
+  let g = '';
+  for (const t of yTicks(max)) g += `<line class="grid" x1="${ml}" x2="${ml + iw}" y1="${y(t)}" y2="${y(t)}"/>
+    <text x="${ml + iw + 8}" y="${y(t) + 4}">${num(t)}</text>`;
+  let bars = '';
+  buckets.forEach((b, i) => {
+    const cx = ml + gap * slot(i) + gap / 2, h = Math.max(2, ih - (y(b.value) - mt));
+    const lbl = b.label.length > 16 ? b.label.slice(0, 15) + '…' : b.label;
+    bars += `<g class="hit" data-drill="${i}" tabindex="0" role="button" aria-label="${esc(b.label)}: ${num(b.value)}">
+      <title>${esc(b.label)}${b.other ? ` (${b.groups} קטגוריות נוספות)` : ''} — ${num(b.value)} (${pct(b.value, buckets.reduce((s,x)=>s+x.value,0))}%) · לחצו לרשומות</title>
+      <rect x="${cx - bw / 2}" y="${y(b.value)}" width="${bw}" height="${h}" rx="5" fill="${b.other ? 'var(--line)' : cOf(i)}"/>
+      <text class="vlabel" x="${cx}" y="${y(b.value) - 6}" text-anchor="middle">${num(b.value)}</text>
+      <text x="${cx}" y="${mt + ih + 17}" text-anchor="middle" transform="rotate(-18 ${cx} ${mt + ih + 17})">${esc(lbl)}</text>
+    </g>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
+     aria-label="גרף עמודות: ${esc(opts.valueLabel || '')} לפי ${esc(opts.xLabel || '')}">
+    ${g}<line class="axis" x1="${ml}" x2="${ml + iw}" y1="${mt + ih}" y2="${mt + ih}"/>${bars}</svg>`;
+}
+
+/* עוגה / דונאט */
+function donutChart(buckets, opts = {}) {
+  const W = 860, H = 290, cx = W / 2, cy = H / 2, r = 105, ir = 62;
+  const tot = buckets.reduce((s, b) => s + b.value, 0) || 1;
+  let a0 = -Math.PI / 2, paths = '';
+  buckets.forEach((b, i) => {
+    const a1 = a0 + b.value / tot * Math.PI * 2;
+    const big = a1 - a0 > Math.PI ? 1 : 0;
+    const p = (rad, a) => `${(cx + rad * Math.cos(a)).toFixed(1)},${(cy + rad * Math.sin(a)).toFixed(1)}`;
+    paths += `<g class="hit" data-drill="${i}" tabindex="0" role="button" aria-label="${esc(b.label)}: ${num(b.value)}">
+      <title>${esc(b.label)} — ${num(b.value)} (${pct(b.value, tot)}%) · לחצו לרשומות</title>
+      <path d="M ${p(r, a0)} A ${r} ${r} 0 ${big} 1 ${p(r, a1)} L ${p(ir, a1)} A ${ir} ${ir} 0 ${big} 0 ${p(ir, a0)} Z"
+        fill="${b.other ? 'var(--line)' : cOf(i)}" stroke="var(--surface)" stroke-width="2"/></g>`;
+    a0 = a1;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="גרף עוגה לפי ${esc(opts.xLabel || '')}">
+    ${paths}
+    <text x="${cx}" y="${cy - 4}" text-anchor="middle" style="font-size:22px;font-weight:700;fill:var(--ink)">${num(tot)}</text>
+    <text x="${cx}" y="${cy + 16}" text-anchor="middle">${esc(opts.valueLabel || 'רשומות')}</text></svg>`;
+}
+
+/* עמודות מוערמות (פילוח מרובה) */
+function stackedChart(matrix, seriesLabels, opts = {}) {
+  const n = matrix.length, W = 860, H = 300, ml = 30, mr = 62, mt = 18, mb = 58;
+  const iw = W - ml - mr, ih = H - mt - mb;
+  const max = niceMax(Math.max(1, ...matrix.map(m => m.total)));
+  const gap = iw / n, bw = Math.min(58, gap * .66);
+  const y = v => mt + ih - v / max * ih;
+  const slot = i => opts.rtl ? n - 1 - i : i;
+  let g = '';
+  for (const t of yTicks(max)) g += `<line class="grid" x1="${ml}" x2="${ml + iw}" y1="${y(t)}" y2="${y(t)}"/>
+    <text x="${ml + iw + 8}" y="${y(t) + 4}">${num(t)}</text>`;
+  let bars = '';
+  const step = Math.ceil(n / 12);
+  matrix.forEach((m, i) => {
+    const cx = ml + gap * slot(i) + gap / 2;
+    let acc = 0;
+    m.cells.forEach((c, j) => {
+      if (!c.value) return;
+      const h = c.value / max * ih;
+      const yy = mt + ih - acc - h; acc += h;
+      bars += `<g class="hit" data-drill="${i}:${j}" tabindex="0" role="button"
+          aria-label="${esc(m.label)}, ${esc(seriesLabels[j])}: ${num(c.value)}">
+        <title>${esc(m.label)} · ${esc(seriesLabels[j])} — ${num(c.value)} · לחצו לרשומות</title>
+        <rect x="${cx - bw / 2}" y="${yy}" width="${bw}" height="${Math.max(1.5, h)}" fill="${cOf(j)}"/></g>`;
+    });
+    if (i % step === 0 || i === n - 1)
+      bars += `<text x="${cx}" y="${mt + ih + 18}" text-anchor="middle">${esc(m.label.length > 14 ? m.label.slice(0,13) + '…' : m.label)}</text>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img"
+     aria-label="עמודות מוערמות: ${esc(opts.xLabel || '')} לפי ${esc(opts.seriesLabel || '')}">
+    ${g}<line class="axis" x1="${ml}" x2="${ml + iw}" y1="${mt + ih}" y2="${mt + ih}"/>${bars}</svg>`;
+}
+
+function legendHTML(labels) {
+  return `<div class="legend">${labels.map((l, i) =>
+    `<span><i style="background:${cOf(i)}"></i>${esc(l)}</span>`).join('')}</div>`;
+}
+function chartHTML(res) {
+  const c = res.chart; if (!c) return '';
+  const timeAxis = res.groupBy === 'month' || res.groupBy === 'day';
+  const opts = { ...c, rtl: !timeAxis };
+  let svg = '', legend = '', kind = '';
+  if (c.type === 'line')   { svg = lineChart(c.buckets, opts);   kind = 'ציר זמן'; }
+  if (c.type === 'bars')   { svg = barChart(c.buckets, opts);    kind = 'גרף עמודות'; }
+  if (c.type === 'donut')  { svg = donutChart(c.buckets, opts);  kind = 'גרף עוגה';
+                             legend = legendHTML(c.buckets.map(b => `${b.label} — ${num(b.value)}`)); }
+  if (c.type === 'stacked'){ svg = stackedChart(c.matrix, c.seriesKeys, opts); kind = 'עמודות מוערמות';
+                             legend = legendHTML(c.seriesKeys); }
+  return `<div class="chart-title"><span>${kind} · ${esc(c.xLabel || '')}</span><span class="ftag">F4</span></div>
+    <div class="chart-box">${svg}</div>${legend}
+    <div class="chart-hint">💡 לחיצה על נקודה/עמודה/פלח פותחת את הרשומות הגולמיות שמאחוריה <span class="ftag">F5</span></div>`;
+}
+
+/* ---------- כרטיס תשובה ---------- */
+const ANSWERS = {};   // aid → result
+
+function answerHTML(res) {
+  const aid = res.aid;
+  if (res.mode === 'unanswered') {
+    return `<div class="card bubble unanswered" data-aid="${aid}">
+      <div class="row" style="align-items:flex-start">
+        <div class="grow">
+          <p class="headline" style="font-size:16px">שאלה זו כוללת מידע שאינו זמין כיום במערכת.</p>
+          <p class="subline"><b>מה חסר:</b> ${esc(res.missing)}.</p>
+          <p class="subline">נתוני הכניסה והיציאה שבמערכת כוללים: תאריך ושעת המעבר, כיוון, נקודת מעבר וסוגה,
+            פרטי הנוסע (שם, תיעתוק, אזרחות, שנת לידה, מסמך) ופרטי הטיסה/הכלי. לקבלת מענה לשאלה זו יש לפנות לאנליסט או למנהלת המוצר.</p>
+          <ul class="why-list">
+            <li>השאלה נרשמה אוטומטית בדו"ח <b>"שאלות ללא מענה"</b> שנשלח שבועית למנהלת המוצר ולצוות הפיתוח <span class="ftag">F11</span></li>
+            <li>אפשר לנסח מחדש כשאלה על תנועות גבול — למשל: "כל התנועות של &lt;שם&gt; בשנה האחרונה"</li>
+          </ul>
+        </div>
+        <span class="pill warn">🚧 מחוץ לתחולה כיום</span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn sm" data-act="gapmail" data-aid="${aid}">הצג את הרישום בדו"ח</button>
+        <span class="fb" data-aid="${aid}">
+          <span>האם ההסבר היה ברור?</span>
+          <button data-act="fb" data-v="up" aria-pressed="false" aria-label="כן">👍</button>
+          <button data-act="fb" data-v="down" aria-pressed="false" aria-label="לא">👎</button>
+          <span class="ftag">F12</span>
+        </span>
+      </div></div>`;
+  }
+  const rel = res.reliability;
+  const defs = (res.spec.appliedDefaults || []);
+  return `<div class="card answer" data-aid="${aid}">
+    <div class="ahead">
+      <div class="grow">
+        <p class="headline">${res.headline}</p>
+        <p class="subline">${res.subline}</p>
+      </div>
+      <span class="pill ${rel.level}"><span class="tip" tabindex="0">${rel.icon} ${rel.label}
+        <span class="tipbox"><b>מחוון אמינות (F6)</b><br>${esc(rel.text)}
+        ${rel.details.length ? '<br><br>' + rel.details.map(d => '• ' + esc(d)).join('<br>') : ''}</span></span></span>
+      <span class="ftag">F3 · F6</span>
+    </div>
+    ${res.kpis && res.kpis.length ? `<div class="kpis">${res.kpis.map(k =>
+      `<div class="kpi"><b>${k.v}</b><span>${esc(k.l)}</span></div>`).join('')}</div>` : ''}
+    ${(defs.length || res.notes.length || rel.details.length) ? `<div class="notes">
+      ${defs.length ? `<b>הופעלו ברירות מחדל בשקיפות <span class="ftag">F2</span>:</b><ul>${defs.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+      ${rel.details.length ? `<b>פערי נתונים שזוהו:</b><ul>${rel.details.map(d => `<li>${esc(d)}</li>`).join('')}</ul>` : ''}
+      ${res.notes.length ? `<ul>${res.notes.map(nn => `<li>${esc(nn)}</li>`).join('')}</ul>` : ''}
+    </div>` : ''}
+    ${chartHTML(res)}
+    <div class="answer-foot">
+      <button class="btn sm" data-act="drill" data-aid="${aid}">📋 רשומות גולמיות (${num(res.records ? res.records.length : 0)}) <span class="ftag">F5</span></button>
+      <button class="btn sm" data-act="xls" data-aid="${aid}">📊 ייצוא Excel <span class="ftag">F7</span></button>
+      <button class="btn sm" data-act="doc" data-aid="${aid}">📄 ייצוא PDF/PPT/Word <span class="ftag">F8</span></button>
+      <button class="btn sm" data-act="sched" data-aid="${aid}">📧 שמור כדו"ח מתוזמן <span class="ftag">F10</span></button>
+      <button class="btn sm" data-act="fav" data-aid="${aid}">⭐ מועדף <span class="ftag">F9</span></button>
+      <span class="fb" data-aid="${aid}">
+        <span>האם התשובה עזרה?</span>
+        <button data-act="fb" data-v="up" aria-pressed="false" aria-label="כן, עזרה">👍</button>
+        <button data-act="fb" data-v="down" aria-pressed="false" aria-label="לא עזרה">👎</button>
+        <span class="ftag">F12</span>
+      </span>
+    </div></div>`;
+}
+
+/* ---------- Drill-down (F5) ---------- */
+const FIELD_HE = Object.fromEntries(FIELDS.map(f => [f.k, f.he]));
+FIELD_HE.dateLabel = 'תאריך'; FIELD_HE.timeLabel = 'שעה';
+const LTR_FIELDS = new Set(['nameLat','flightNo','docNo','plate','id']);
+
+let drillState = null;
+function openDrill(res, recs, subtitle) {
+  drillState = { res, recs, all:recs, sort:{ k:'dtLabel', dir:-1 }, page:0, per:60, search:'', subtitle:subtitle || '' };
+  renderDrill();
+}
+function renderDrill() {
+  const s = drillState, fields = s.res.fields || FIELDS_BASE;
+  const q = s.search.trim().toLowerCase();
+  let rows = q ? s.all.filter(r => fields.some(f => String(r[f] ?? '').toLowerCase().includes(q))) : s.all.slice();
+  const sk = s.sort.k;
+  rows.sort((a, b) => {
+    let va = sk === 'dtLabel' ? a.dt : a[sk], vb = sk === 'dtLabel' ? b.dt : b[sk];
+    if (va === vb) return 0; return (va > vb ? 1 : -1) * s.sort.dir;
+  });
+  s.rows = rows;
+  const pages = Math.max(1, Math.ceil(rows.length / s.per));
+  s.page = Math.min(s.page, pages - 1);
+  const slice = rows.slice(s.page * s.per, (s.page + 1) * s.per);
+  const body = `
+    <div class="row" style="margin-bottom:10px">
+      <input class="input" id="drillSearch" placeholder="סינון בטבלה…" value="${esc(s.search)}" style="max-width:260px">
+      <span class="pill neutral">${num(rows.length)} רשומות</span>
+      <span class="small muted">לחיצה על כותרת עמודה — מיון</span>
+      <span class="grow"></span>
+      <button class="btn sm" data-act="xls-drill">📊 ייצוא Excel</button>
+    </div>
+    ${s.subtitle ? `<p class="small muted" style="margin:0 0 8px">${esc(s.subtitle)}</p>` : ''}
+    <div class="card" style="overflow:hidden">
+      <div class="tablewrap"><table class="data">
+        <thead><tr>${fields.map(f => `<th data-sort="${f}">${esc(FIELD_HE[f] || f)}${sk === f ? (s.sort.dir === 1 ? ' ▲' : ' ▼') : ''}</th>`).join('')}</tr></thead>
+        <tbody>${slice.map(r => `<tr>${fields.map(f => {
+          const v = r[f] ?? NA;
+          const cls = v === NA ? ' class="na"' : '';
+          return `<td${cls}>${LTR_FIELDS.has(f) ? `<span class="ltr">${esc(v)}</span>` : esc(v)}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
+      </table></div>
+      <div class="pager">
+        <button class="btn sm" data-page="prev" ${s.page === 0 ? 'disabled' : ''}>‹ הקודם</button>
+        <span>עמוד ${s.page + 1} מתוך ${pages}</span>
+        <button class="btn sm" data-page="next" ${s.page >= pages - 1 ? 'disabled' : ''}>הבא ›</button>
+        <span class="grow"></span>
+        <span>שדות מוצגים: רלוונטיים לשאלה בלבד</span>
+      </div>
+    </div>`;
+  openModal({ title:'רשומות גולמיות', tag:'F5 · F7', wide:true, body, footer:`<button class="btn" data-close>סגור</button>` });
+  const mb = $('.modal-body');
+  $('#drillSearch', mb).addEventListener('input', e => { s.search = e.target.value; s.page = 0; renderDrill(); });
+  mb.addEventListener('click', e => {
+    const th = e.target.closest('th[data-sort]');
+    if (th) { const k = th.dataset.sort; s.sort = { k, dir: s.sort.k === k ? -s.sort.dir : 1 }; renderDrill(); return; }
+    const pg = e.target.closest('[data-page]');
+    if (pg) { s.page += pg.dataset.page === 'next' ? 1 : -1; renderDrill(); return; }
+    if (e.target.closest('[data-act="xls-drill"]')) exportExcel(s.res, s.rows);
+  });
+}
+</script>
+<script>
+/* ============================================================================
+   מודול 4: מצב האפליקציה, זרימת השאילתה, ייצוא (F7/F8), מודאלים
+   ============================================================================ */
+const LS = 'askdata.v1';
+const DEFAULT_STORE = { history:[], favorites:[], scheduled:[], gaps:[], feedback:[], audit:[], theme:null };
+let STORE = load();
+function load() {
+  try { return Object.assign({}, DEFAULT_STORE, JSON.parse(localStorage.getItem(LS) || '{}')); }
+  catch { return { ...DEFAULT_STORE }; }
+}
+function save() { try { localStorage.setItem(LS, JSON.stringify(STORE)); } catch {} }
+
+/* ---------- toast ---------- */
+function toast(msg, ms = 3600) {
+  const el = document.createElement('div');
+  el.className = 'toast'; el.innerHTML = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 250); }, ms);
+}
+
+/* ---------- modal ---------- */
+function openModal({ title, body, footer, wide, tag }) {
+  closeModal();
+  const bg = document.createElement('div');
+  bg.className = 'modal-bg';
+  bg.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+    <div class="modal-head"><h2>${esc(title)}</h2>${tag ? `<span class="ftag">${esc(tag)}</span>` : ''}
+      <span class="grow"></span><button class="btn sm" data-close aria-label="סגור">✕</button></div>
+    <div class="modal-body">${body}</div>
+    ${footer ? `<div class="modal-foot">${footer}</div>` : ''}</div>`;
+  $('#modalRoot').appendChild(bg);
+  bg.addEventListener('click', e => { if (e.target === bg || e.target.closest('[data-close]')) closeModal(); });
+  document.addEventListener('keydown', escClose);
+  const f = bg.querySelector('input,select,textarea,button');
+  if (f) f.focus();
+  return bg;
+}
+function closeModal() { const m = $('.modal-bg'); if (m) m.remove(); document.removeEventListener('keydown', escClose); }
+function escClose(e) { if (e.key === 'Escape') closeModal(); }
+
+/* ---------- ניווט ---------- */
+function showView(v) {
+  $$('.view').forEach(s => s.hidden = s.id !== 'view-' + v);
+  $$('.nav-item').forEach(b => b.setAttribute('aria-current', b.dataset.view === v ? 'page' : 'false'));
+  if (v === 'history') renderHistory();
+  if (v === 'favorites') renderFavorites();
+  if (v === 'scheduled') renderScheduled();
+  if (v === 'gaps') renderGaps();
+  if (v === 'feedback') renderFeedback();
+  if (v === 'audit') renderAudit();
+  if (v === 'sources') renderSources();
+  if (v === 'about') renderAbout();
+  window.scrollTo({ top:0 });
+}
+function updateCounts() {
+  $('#cHistory').textContent = num(STORE.history.length);
+  $('#cFav').textContent = num(STORE.history.filter(h => h.fav).length);
+  $('#cSched').textContent = num(STORE.scheduled.length);
+  $('#cGaps').textContent = num(STORE.gaps.length);
+  $('#cFb').textContent = num(STORE.feedback.length);
+  $('#cAudit').textContent = num(STORE.audit.length);
+}
+
+/* ---------- זרימת השאילתה ---------- */
+const thread = () => $('#thread');
+function addTurn(html) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  const node = wrap.firstElementChild;
+  thread().appendChild(node);
+  node.scrollIntoView({ behavior:'smooth', block:'center' });
+  return node;
+}
+const meTurn = q => addTurn(`<div class="turn me"><div class="who">${esc(me().initials)}</div>
+  <div class="body"><div class="qbubble">${esc(q)}</div>
+  <div class="qmeta">${esc(me().name)} · ${esc(me().role)} · ${fDT(new Date())} <span class="ftag">F1</span></div></div></div>`);
+const sysTurn = inner => addTurn(`<div class="turn sys"><div class="who">🛂</div><div class="body">${inner}</div></div>`);
+
+let PENDING = null;   // { sid, spec, queue }
+let SID = 0;          // מזהה סשן שאילתה — מנטרל בועות הבהרה של שאלה קודמת
+
+function askQuestion(raw) {
+  const q = raw.trim(); if (!q) return;
+  $('#q').value = ''; autoGrow($('#q'));
+  if (PENDING && PENDING.queue.length) cancelPending('בוטלה — נשאלה שאלה חדשה');
+  const sid = ++SID;
+  meTurn(q);
+  const t = sysTurn(`<div class="bubble typing" role="status" aria-label="מעבד את השאלה"><i></i><i></i><i></i></div>`);
+  const spec = parseQuestion(q);
+  spec.appliedDefaults = [];
+  const delay = 420 + R() * 700;
+  setTimeout(() => {
+    if (SID !== sid) { t.remove(); return; }
+    t.remove();
+    PENDING = { sid, spec, queue: spec.clarify.slice() };
+    nextStep();
+  }, delay);
+}
+function cancelPending(text) {
+  const box = $('.clarify.live');
+  if (box) { box.classList.remove('live'); lockClarify(box.parentElement, text); }
+  PENDING = null;
+}
+
+function nextStep() {
+  const p = PENDING; if (!p) return;
+  if (p.queue.length) { renderClarify(p.queue[0], p.sid); return; }
+  finishQuery();
+}
+
+function renderClarify(c, sid) {                  // F2 — בועת שיחה, לא הודעת שגיאה
+  const node = sysTurn(`<div class="clarify live" data-cid="${esc(c.id)}">
+    <p class="q">${esc(c.q)} <span class="ftag">F2</span></p>
+    <p class="why">${esc(c.why)}</p>
+    <div class="opts">
+      ${c.options.map((o, i) => `<button class="chip" data-opt="${i}">${esc(o.label)}</button>`).join('')}
+      ${c.required ? '<span class="pill warn">חובה להבהיר</span>' : '<button class="btn sm ghost" data-skip>דלג — המשך עם ברירת מחדל</button>'}
+    </div>
+    ${c.free ? `<div class="free"><input class="input" placeholder="${esc(c.free)}" data-free>
+      <button class="btn sm" data-freego>אישור</button></div>` : ''}
+  </div>`);
+  node.addEventListener('click', e => {
+    if (!PENDING || PENDING.sid !== sid) {           // בועה של שאלה קודמת
+      if (e.target.closest('button')) toast('בועת ההבהרה הזו שייכת לשאלה קודמת. שאלו מחדש כדי להמשיך.');
+      return;
+    }
+    const opt = e.target.closest('[data-opt]');
+    if (opt) { applyClarify(c, c.options[+opt.dataset.opt].value, c.options[+opt.dataset.opt].label, node); return; }
+    if (e.target.closest('[data-skip]')) {
+      PENDING.spec.appliedDefaults.push(c.defText);
+      c.apply(PENDING.spec, c.def);
+      lockClarify(node, 'נבחרה ברירת המחדל: ' + c.defText);
+      PENDING.queue.shift(); nextStep(); return;
+    }
+    if (e.target.closest('[data-freego]')) {
+      const val = $('[data-free]', node).value;
+      const per = parsePeriod(' ' + val + ' ');
+      if (!per) { toast('לא זוהה טווח תאריכים. פורמט לדוגמה: 1/7/2026 עד 31/8/2026'); return; }
+      applyClarify(c, per, per.label, node);
+    }
+  });
+  node.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-free]')) $('[data-freego]', node).click(); });
+}
+function applyClarify(c, value, label, node) {
+  c.apply(PENDING.spec, value);
+  lockClarify(node, 'נבחר: ' + label);
+  PENDING.queue.shift();
+  nextStep();
+}
+function lockClarify(node, text) {
+  const box = $('.clarify', node) || node;
+  box.classList.remove('live');
+  $('.opts', box).innerHTML = `<span class="pill brand">✓ ${esc(text)}</span>`;
+  const free = $('.free', box); if (free) free.remove();
+}
+
+function finishQuery() {
+  const spec = PENDING.spec; PENDING = null;
+  const t = sysTurn(`<div class="bubble typing" role="status" aria-label="שולף נתונים"><i></i><i></i><i></i></div>`);
+  const res = runQuery(spec);
+  res.aid = uid();
+  ANSWERS[res.aid] = res;
+  setTimeout(() => {
+    t.remove();
+    const node = sysTurn(answerHTML(res));
+    bindAnswer(node, res);
+    $('#latencyBadge').textContent = `⏱️ ${res.latency.toFixed(1)} שנ׳`;
+    $('#latencyBadge').title = `זמן תגובה ${res.latency.toFixed(1)} שניות (NFR1: עד 10 שניות) · חישוב בפועל: ${(res.exec || 0).toFixed(0)}ms על ${num(RECORDS.length)} רשומות`;
+    // היסטוריה + audit + רישום שאלה ללא מענה
+    const hid = uid();
+    STORE.history.unshift({ id:hid, aid:res.aid, q:spec.raw, title:res.title || spec.raw.slice(0, 60), ts:Date.now(),
+      ok:res.mode !== 'unanswered', fav:false, user:me().name, records:res.records ? res.records.length : 0 });
+    STORE.audit.unshift({ id:uid(), ts:Date.now(), user:me().name, role:me().role, q:spec.raw,
+      result:res.mode === 'unanswered' ? 'ללא מענה' : 'נענתה', latency:res.latency.toFixed(1),
+      records:res.records ? res.records.length : 0 });
+    if (res.mode === 'unanswered')
+      STORE.gaps.unshift({ id:uid(), ts:Date.now(), user:me().name, q:spec.raw, missing:res.missing });
+    save(); updateCounts();
+  }, 260 + R() * 420);
+}
+function bindAnswer(node, res) {
+  node.addEventListener('click', e => {
+    const svgHit = e.target.closest('[data-drill]');
+    if (svgHit && node.contains(svgHit) && svgHit.closest('svg')) { drillFromChart(res, svgHit.dataset.drill); return; }
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const act = b.dataset.act;
+    if (act === 'drill') openDrill(res, res.records, `כל הרשומות שנשלפו עבור: "${res.spec.raw}"`);
+    if (act === 'xls') exportExcel(res, res.records);
+    if (act === 'doc') exportDocModal(res);
+    if (act === 'sched') schedModal(res);
+    if (act === 'fav') { markFavorite(res); toast('⭐ השאילתה נשמרה במועדפים'); }
+    if (act === 'fb') feedbackClick(res, b, node);
+    if (act === 'gapmail') showView('gaps');
+  });
+  node.addEventListener('keydown', e => {
+    const hit = e.target.closest('[data-drill]');
+    if (hit && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); drillFromChart(res, hit.dataset.drill); }
+  });
+}
+function drillFromChart(res, sel) {
+  const c = res.chart;
+  if (sel.includes(':')) {
+    const [i, j] = sel.split(':').map(Number);
+    const cell = c.matrix[i].cells[j];
+    openDrill(res, cell.recs, `${c.xLabel}: ${c.matrix[i].label} · ${c.seriesLabel}: ${c.seriesKeys[j]}`);
+  } else {
+    const b = c.buckets[+sel];
+    openDrill(res, b.recs, `${c.xLabel}: ${b.label} — ${num(b.value)} רשומות`);
+  }
+}
+function markFavorite(res) {
+  const h = STORE.history.find(x => x.aid === res.aid);
+  if (h) { h.fav = true; save(); updateCounts(); }
+}
+
+/* ---------- Feedback (F12) ---------- */
+function feedbackClick(res, btn, node) {
+  const v = btn.dataset.v;
+  $$('.fb button', node).forEach(x => x.setAttribute('aria-pressed', String(x === btn)));
+  const rec = { id:uid(), ts:Date.now(), user:me().name, q:res.spec.raw, title:res.title || '', v, note:'' };
+  if (v === 'up') {
+    STORE.feedback.unshift(rec); save(); updateCounts();
+    toast('תודה! ה-Feedback נרשם ונשלח לדו"ח הגולמי של מנהלת המוצר ופיתוח.');
+    return;
+  }
+  openModal({
+    title:'מה לא עבד?', tag:'F12',
+    body:`<p class="small muted">ההערה נשלחת למנהלת המוצר ולצוות הפיתוח כחלק מהדו"ח הגולמי השבועי. שדה חופשי — לא חובה.</p>
+      <label class="field"><span>השאלה</span><input class="input" value="${esc(res.spec.raw)}" readonly></label>
+      <label class="field"><span>הערה חופשית (אופציונלי)</span>
+        <textarea class="input" id="fbNote" placeholder="לדוגמה: התשובה התייחסה רק למעברים אוויריים למרות שביקשתי הכל"></textarea></label>`,
+    footer:`<button class="btn primary" id="fbSend">שלח</button><button class="btn" data-close>בטל</button>`
+  });
+  $('#fbSend').addEventListener('click', () => {
+    rec.note = $('#fbNote').value.trim();
+    STORE.feedback.unshift(rec); save(); updateCounts(); closeModal();
+    toast('ה-Feedback נשלח. תודה — הוא ייסקר בסקירה השבועית של ה-PM.');
+  });
+}
+
+/* ---------- ייצוא Excel (F7) ---------- */
+function slug(s) { return s.replace(/["'?]/g, '').replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 48); }
+function download(name, mime, text) {
+  const blob = new Blob([text], { type:mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function exportExcel(res, rows) {
+  const fields = res.fields || FIELDS_BASE;
+  const head = fields.map(f => FIELD_HE[f] || f);
+  const lines = [head.join(';')];
+  for (const r of rows) lines.push(fields.map(f => `"${String(r[f] ?? NA).replace(/"/g, '""')}"`).join(';'));
+  const fn = `${fDate(new Date()).replace(/\//g, '-')}_${slug(res.title || res.spec.raw)}.csv`;
+  download(fn, 'text/csv;charset=utf-8', '﻿' + lines.join('\r\n'));
+  toast(`📊 יוצאו ${num(rows.length)} רשומות · <span class="ltr">${esc(fn)}</span>`);
+}
+
+/* ---------- ייצוא PDF / PPT / Word (F8) ---------- */
+function exportDocModal(res) {
+  openModal({
+    title:'ייצוא תמצית וגרפים', tag:'F8',
+    body:`<p class="small muted">הייצוא כולל את השאלה המקורית, התשובה המסוכמת, הגרפים, מחוון האמינות, תאריך ההפקה ושם המשתמש.</p>
+      <label class="field"><span>פורמט</span>
+        <select class="input" id="expFmt">
+          <option value="pdf">PDF — תצוגת הדפסה / שמירה כ-PDF</option>
+          <option value="docx">Word (DOCX)</option>
+          <option value="pptx">PowerPoint (PPTX)</option>
+        </select></label>
+      <label class="row small" style="gap:7px"><input type="checkbox" id="expChart" checked> כלול גרפים</label>
+      <label class="row small" style="gap:7px;margin-top:6px"><input type="checkbox" id="expTable"> כלול 50 רשומות ראשונות</label>
+      <p class="small muted" style="margin-top:12px">במוקאפ ללא Backend: PDF נפתח דרך תיבת ההדפסה של הדפדפן,
+        Word מופק כקובץ <span class="ltr">.doc</span> נטען ב-Word, ו-PPT מופק כתצוגת שקפים ב-<span class="ltr">HTML</span>.
+        בגרסת הייצור ההפקה תתבצע בצד השרת.</p>`,
+    footer:`<button class="btn primary" id="expGo">הפק</button><button class="btn" data-close>בטל</button>`
+  });
+  $('#expGo').addEventListener('click', () => {
+    const fmt = $('#expFmt').value, withChart = $('#expChart').checked, withTable = $('#expTable').checked;
+    closeModal();
+    const html = exportBody(res, withChart, withTable);
+    const fn = `${fDate(new Date()).replace(/\//g, '-')}_${slug(res.title || res.spec.raw)}`;
+    if (fmt === 'pdf') { printHTML(html); toast('📄 נפתחה תיבת ההדפסה — ניתן לשמור כ-PDF'); }
+    else if (fmt === 'docx') {
+      download(fn + '.doc', 'application/msword',
+        `<html dir="rtl" lang="he"><head><meta charset="utf-8"></head><body style="font-family:Arial">${html}</body></html>`);
+      toast(`📄 הופק <span class="ltr">${esc(fn)}.doc</span>`);
+    } else {
+      download(fn + '-slides.html', 'text/html',
+        `<html dir="rtl" lang="he"><head><meta charset="utf-8"><title>${esc(res.title || '')}</title>
+        <style>body{font-family:Arial;background:#eee;margin:0}.slide{background:#fff;width:960px;height:540px;margin:20px auto;
+        padding:40px;box-sizing:border-box;box-shadow:0 2px 8px rgba(0,0,0,.2);overflow:hidden}h1{font-size:26px}</style></head>
+        <body><div class="slide">${html}</div></body></html>`);
+      toast(`📊 הופקה תצוגת שקפים: <span class="ltr">${esc(fn)}-slides.html</span>`);
+    }
+  });
+}
+function exportBody(res, withChart, withTable) {
+  const rel = res.reliability || { icon:'', label:'', text:'' };
+  const rows = withTable && res.records ? res.records.slice(0, 50) : [];
+  const fields = res.fields || FIELDS_BASE;
+  return `<div dir="rtl" style="font-family:inherit">
+    <h1 style="font-size:20px;margin:0 0 4px">שאל את הנתונים — תמצית שאילתה</h1>
+    <p style="color:#666;font-size:12px;margin:0 0 14px">
+      הופק ב-${fDT(new Date())} · ${esc(me().name)} (${esc(me().role)}) · נתונים סינתטיים להדגמה</p>
+    <p style="font-size:13px;margin:0 0 4px"><b>השאלה:</b> ${esc(res.spec.raw)}</p>
+    <p style="font-size:15px;margin:10px 0 4px">${res.headline || ''}</p>
+    <p style="font-size:12.5px;color:#444;margin:0 0 8px">${res.subline || ''}</p>
+    <p style="font-size:12.5px;margin:0 0 12px"><b>מחוון אמינות:</b> ${rel.icon} ${esc(rel.label)} — ${esc(rel.text)}
+      ${(rel.details || []).map(d => '<br>• ' + esc(d)).join('')}</p>
+    ${res.kpis ? `<table style="border-collapse:collapse;font-size:12.5px;margin-bottom:12px">
+      <tr>${res.kpis.map(k => `<td style="border:1px solid #ccc;padding:6px 10px"><b>${k.v}</b><br>${esc(k.l)}</td>`).join('')}</tr>
+      </table>` : ''}
+    ${withChart ? `<div style="max-width:720px">${chartHTML(res).replace(/<div class="chart-hint">[\s\S]*?<\/div>/, '')}</div>` : ''}
+    ${rows.length ? `<table style="border-collapse:collapse;font-size:11px;margin-top:12px">
+      <tr>${fields.map(f => `<th style="border:1px solid #ccc;padding:4px 6px;background:#f0f0f0">${esc(FIELD_HE[f] || f)}</th>`).join('')}</tr>
+      ${rows.map(r => `<tr>${fields.map(f => `<td style="border:1px solid #ddd;padding:3px 6px">${esc(r[f] ?? NA)}</td>`).join('')}</tr>`).join('')}
+      </table>` : ''}
+  </div>`;
+}
+function printHTML(html) {
+  const holder = document.createElement('div');
+  holder.className = 'print-only'; holder.id = 'printHolder';
+  holder.innerHTML = html;
+  document.body.appendChild(holder);
+  const style = document.createElement('style');
+  style.id = 'printStyle';
+  style.textContent = '@media print{body>*:not(#printHolder){display:none!important}#printHolder{display:block!important}}';
+  document.head.appendChild(style);
+  window.print();
+  setTimeout(() => { holder.remove(); style.remove(); }, 800);
+}
+
+/* ---------- דו"ח מתוזמן (F10) ---------- */
+function schedModal(res, existing) {
+  const s = existing || { title:res.title || res.spec.raw.slice(0, 60), q:res.spec.raw, freq:'weekly',
+    custom:'כל יום ראשון ורביעי', time:'07:00', recipients:['e1'], attach:'pdf', paused:false };
+  openModal({
+    title: existing ? 'עריכת דו"ח מתוזמן' : 'שמירה כדו"ח מתוזמן', tag:'F10', wide:true,
+    body:`
+      <label class="field"><span>שם הדו"ח</span><input class="input" id="sdTitle" value="${esc(s.title)}"></label>
+      <label class="field"><span>השאילתה שתרוץ בכל פעם</span><textarea class="input" id="sdQ" rows="2">${esc(s.q)}</textarea></label>
+      <div class="row" style="align-items:flex-start;gap:14px">
+        <label class="field grow" style="min-width:200px"><span>תדירות</span>
+          <select class="input" id="sdFreq">
+            <option value="daily"${s.freq === 'daily' ? ' selected' : ''}>יומי</option>
+            <option value="weekly"${s.freq === 'weekly' ? ' selected' : ''}>שבועי (יום א׳)</option>
+            <option value="monthly"${s.freq === 'monthly' ? ' selected' : ''}>חודשי (ה-1 בחודש)</option>
+            <option value="custom"${s.freq === 'custom' ? ' selected' : ''}>מותאם אישית</option>
+          </select></label>
+        <label class="field" style="width:140px"><span>שעת שליחה</span>
+          <input class="input" id="sdTime" type="time" value="${esc(s.time)}"></label>
+      </div>
+      <label class="field" id="sdCustomWrap" style="${s.freq === 'custom' ? '' : 'display:none'}">
+        <span>תיאור התדירות המותאמת</span><input class="input" id="sdCustom" value="${esc(s.custom)}"></label>
+      <div class="field"><span>נמענים — מרשימה סגורה של עובדים (לא כתובת מייל חופשית)</span>
+        <input class="input" id="sdSearch" placeholder="חיפוש עובד…" style="margin-bottom:6px">
+        <div class="recips" id="sdRecips">${EMPLOYEES.map(e => `
+          <label data-name="${esc(e.name)}"><input type="checkbox" value="${e.id}"${s.recipients.includes(e.id) ? ' checked' : ''}>
+          <span><b>${esc(e.name)}</b> <span class="muted small">— ${esc(e.role)}</span></span></label>`).join('')}</div></div>
+      <div class="field"><span>קובץ מצורף</span>
+        <div class="row">
+          <label class="row small" style="gap:6px"><input type="radio" name="sdAtt" value="pdf"${s.attach === 'pdf' ? ' checked' : ''}> PDF</label>
+          <label class="row small" style="gap:6px"><input type="radio" name="sdAtt" value="xlsx"${s.attach === 'xlsx' ? ' checked' : ''}> Excel</label>
+          <label class="row small" style="gap:6px"><input type="radio" name="sdAtt" value="none"${s.attach === 'none' ? ' checked' : ''}> ללא</label>
+        </div></div>
+      <p class="small muted">גוף המייל יכיל את תוצאות הדו"ח כפי שהן מוצגות בממשק (תמצית + גרף + מחוון אמינות).</p>`,
+    footer:`<button class="btn primary" id="sdSave">${existing ? 'שמור שינויים' : 'צור דו"ח מתוזמן'}</button>
+      <button class="btn" data-close>בטל</button>`
+  });
+  $('#sdFreq').addEventListener('change', e => {
+    $('#sdCustomWrap').style.display = e.target.value === 'custom' ? '' : 'none';
+  });
+  $('#sdSearch').addEventListener('input', e => {
+    const v = e.target.value.trim();
+    $$('#sdRecips label').forEach(l => l.style.display = !v || l.dataset.name.includes(v) ? '' : 'none');
+  });
+  $('#sdSave').addEventListener('click', () => {
+    const recipients = $$('#sdRecips input:checked').map(i => i.value);
+    if (!recipients.length) { toast('יש לבחור לפחות נמען אחד מהרשימה'); return; }
+    const obj = {
+      id: existing ? existing.id : uid(),
+      title: $('#sdTitle').value.trim() || 'דו"ח ללא שם',
+      q: $('#sdQ').value.trim(), freq: $('#sdFreq').value, custom: $('#sdCustom') ? $('#sdCustom').value : '',
+      time: $('#sdTime').value, recipients, attach: $('input[name="sdAtt"]:checked').value,
+      paused: existing ? existing.paused : false,
+      created: existing ? existing.created : Date.now(),
+      owner: existing ? existing.owner : me().name,
+      lastRun: existing ? existing.lastRun : null
+    };
+    if (existing) STORE.scheduled = STORE.scheduled.map(x => x.id === obj.id ? obj : x);
+    else STORE.scheduled.unshift(obj);
+    save(); updateCounts(); closeModal();
+    toast(`📧 הדו"ח "${esc(obj.title)}" נשמר · ${freqText(obj)} · ${recipients.length} נמענים`);
+    if (!$('#view-scheduled').hidden) renderScheduled();
+  });
+}
+const freqText = s => s.freq === 'daily' ? `יומי בשעה ${s.time}` : s.freq === 'weekly' ? `שבועי, יום א׳ בשעה ${s.time}`
+  : s.freq === 'monthly' ? `חודשי, ה-1 בחודש בשעה ${s.time}` : `${s.custom} בשעה ${s.time}`;
+function nextRunText(s) {
+  if (s.paused) return 'מושהה';
+  const [h, m] = s.time.split(':').map(Number);
+  let d = new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate(), h, m);
+  if (d <= NOW) d = addDays(d, 1);
+  if (s.freq === 'weekly') while (d.getDay() !== 0) d = addDays(d, 1);
+  if (s.freq === 'monthly') d = new Date(d.getFullYear(), d.getMonth() + 1, 1, h, m);
+  return `יום ${DAYS_HE[d.getDay()]} ${fDT(d)}`;
+}
+function mailPreview(s) {
+  const spec = parseQuestion(s.q);
+  spec.appliedDefaults = [];
+  for (const c of spec.clarify) { c.apply(spec, c.required ? (c.options[0].value) : c.def);
+    spec.appliedDefaults.push(c.required ? 'תקופה: ' + c.options[0].label : c.defText); }
+  const res = runQuery(spec); res.aid = uid(); ANSWERS[res.aid] = res;
+  const names = s.recipients.map(id => (EMPLOYEES.find(e => e.id === id) || {}).name).filter(Boolean);
+  const body = `<div class="mail">
+    <div class="mh"><b>אל:</b> ${esc(names.join(', '))}<br><b>נושא:</b> [דו"ח מתוזמן] ${esc(s.title)} — ${fDate(NOW)}
+      <br><b>מצורף:</b> ${s.attach === 'none' ? '—' : s.attach === 'pdf' ? `${slug(s.title)}.pdf` : `${slug(s.title)}.xlsx`}</div>
+    <div class="mb">
+      <p class="small muted" style="margin:0 0 8px">דו"ח אוטומטי · ${esc(freqText(s))} · נוצר ע"י ${esc(s.owner)}</p>
+      <p style="margin:0 0 4px"><b>השאלה:</b> ${esc(s.q)}</p>
+      ${res.mode === 'unanswered'
+        ? `<p>${esc(res.missing)}</p>`
+        : `<p class="headline" style="font-size:15px">${res.headline}</p>
+           <p class="subline">${res.subline}</p>
+           <p><span class="pill ${res.reliability.level}">${res.reliability.icon} ${res.reliability.label}</span></p>
+           ${res.kpis ? `<div class="kpis" style="padding:0;margin-bottom:8px">${res.kpis.map(k =>
+              `<div class="kpi"><b>${k.v}</b><span>${esc(k.l)}</span></div>`).join('')}</div>` : ''}
+           ${chartHTML(res).replace(/<div class="chart-hint">[\s\S]*?<\/div>/, '')}`}
+    </div></div>`;
+  openModal({ title:'תצוגת המייל שיישלח', tag:'F10', wide:true, body,
+    footer:`<button class="btn primary" data-close>סגור</button>` });
+}
+
+/* ---------- textarea auto-grow ---------- */
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(180, el.scrollHeight) + 'px'; }
+</script>
+<script>
+/* ============================================================================
+   מודול 5: מסכי ניהול (F9–F12, NFR6), מקורות נתונים, אתחול
+   ============================================================================ */
+
+/* ---------- F9 היסטוריה ומועדפים ---------- */
+const RETENTION_DAYS = 180;   // 6 חודשים
+function pruneHistory() {
+  const cut = Date.now() - RETENTION_DAYS * 864e5;
+  const before = STORE.history.length;
+  STORE.history = STORE.history.filter(h => h.ts >= cut);
+  if (STORE.history.length !== before) save();
+}
+function histItemHTML(h) {
+  return `<div class="card item" data-id="${h.id}">
+    <button class="star" data-act="star" aria-pressed="${h.fav}" aria-label="סימון כמועדף">${h.fav ? '★' : '☆'}</button>
+    <div class="grow">
+      <h4>${esc(h.q)}</h4>
+      <div class="meta">
+        <span>${fDT(new Date(h.ts))}</span><span>${esc(h.user)}</span>
+        ${h.ok ? `<span class="pill ok">נענתה · ${num(h.records)} רשומות</span>` : '<span class="pill warn">ללא מענה</span>'}
+        ${h.title ? `<span>${esc(h.title)}</span>` : ''}
+      </div>
+    </div>
+    <div class="acts">
+      <button class="btn sm primary" data-act="rerun">▶ הרץ מחדש</button>
+      <button class="btn sm" data-act="schedule">📧 תזמן</button>
+      <button class="btn sm danger" data-act="del">מחק</button>
+    </div></div>`;
+}
+function bindList(root, onAct) {
+  root.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const item = e.target.closest('[data-id]');
+    onAct(b.dataset.act, item ? item.dataset.id : null, b);
+  });
+}
+function renderHistory() {
+  pruneHistory();
+  const term = $('#histSearch').value.trim();
+  const f = $('#histFilter').value;
+  let list = STORE.history;
+  if (term) list = list.filter(h => h.q.includes(term) || (h.title || '').includes(term));
+  if (f === 'answered') list = list.filter(h => h.ok);
+  if (f === 'gap') list = list.filter(h => !h.ok);
+  if (f === 'fav') list = list.filter(h => h.fav);
+  const root = $('#histList');
+  root.innerHTML = list.length ? list.map(histItemHTML).join('')
+    : `<div class="card empty"><span class="big">🕘</span>אין שאילתות בהיסטוריה עדיין.<br>
+       <span class="small">כל שאלה שתישאל תישמר כאן ל-6 חודשים.</span></div>`;
+}
+function renderFavorites() {
+  const list = STORE.history.filter(h => h.fav);
+  $('#favList').innerHTML = list.length ? list.map(histItemHTML).join('')
+    : `<div class="card empty"><span class="big">⭐</span>אין מועדפים.<br>
+       <span class="small">סמנו שאילתה בכוכב או בכפתור "מועדף" שמתחת לתשובה.</span></div>`;
+}
+function historyAction(act, id, btn) {
+  const h = STORE.history.find(x => x.id === id); if (!h) return;
+  if (act === 'star') { h.fav = !h.fav; save(); updateCounts(); renderHistory(); renderFavorites(); return; }
+  if (act === 'del') { STORE.history = STORE.history.filter(x => x.id !== id); save(); updateCounts(); renderHistory(); renderFavorites(); return; }
+  if (act === 'rerun') { showView('ask'); $$('.nav-item')[0].setAttribute('aria-current','page'); askQuestion(h.q); return; }
+  if (act === 'schedule') {
+    const spec = parseQuestion(h.q); spec.appliedDefaults = [];
+    for (const c of spec.clarify) if (!c.required) c.apply(spec, c.def);
+    const res = runQuery(spec); res.aid = uid(); ANSWERS[res.aid] = res;
+    schedModal(res);
+  }
+}
+
+/* ---------- F10 דו"חות מתוזמנים ---------- */
+function renderScheduled() {
+  const act = STORE.scheduled.filter(s => !s.paused);
+  $('#schedStats').innerHTML = [
+    ['📧', STORE.scheduled.length, 'דו"חות מוגדרים'],
+    ['▶️', act.length, 'פעילים'],
+    ['⏸️', STORE.scheduled.length - act.length, 'מושהים'],
+    ['👥', new Set(STORE.scheduled.flatMap(s => s.recipients)).size, 'נמענים ייחודיים']
+  ].map(([i, v, l]) => `<div class="card stat"><b>${i} ${num(v)}</b><span>${esc(l)}</span></div>`).join('');
+  $('#schedList').innerHTML = STORE.scheduled.length ? STORE.scheduled.map(s => {
+    const names = s.recipients.map(id => (EMPLOYEES.find(e => e.id === id) || {}).name).filter(Boolean);
+    return `<div class="card item ${s.paused ? 'paused' : ''}" data-id="${s.id}">
+      <div class="grow">
+        <h4>${esc(s.title)} ${s.paused ? '<span class="pill neutral">מושהה</span>' : '<span class="pill ok">פעיל</span>'}</h4>
+        <div class="meta"><span>🔁 ${esc(freqText(s))}</span><span>⏭️ הרצה הבאה: ${esc(nextRunText(s))}</span>
+          <span>📎 ${s.attach === 'none' ? 'ללא קובץ' : s.attach.toUpperCase()}</span><span>👤 ${esc(s.owner)}</span></div>
+        <div class="meta" style="margin-top:4px"><span>❓ ${esc(s.q)}</span></div>
+        <div class="meta" style="margin-top:4px"><span>📬 ${esc(names.join(', '))}</span></div>
+      </div>
+      <div class="acts">
+        <button class="btn sm primary" data-act="preview">👁️ תצוגת מייל</button>
+        <button class="btn sm" data-act="pause">${s.paused ? '▶ הפעל' : '⏸ השהה'}</button>
+        <button class="btn sm" data-act="edit">✏️ ערוך</button>
+        <button class="btn sm danger" data-act="del">מחק</button>
+      </div></div>`;
+  }).join('') : `<div class="card empty"><span class="big">📧</span>אין דו"חות מתוזמנים.<br>
+    <span class="small">כל תשובה בממשק ניתנת לשמירה כדו"ח חוזר בכפתור "שמור כדו"ח מתוזמן".</span></div>`;
+}
+function schedAction(act, id) {
+  const s = STORE.scheduled.find(x => x.id === id); if (!s) return;
+  if (act === 'preview') return mailPreview(s);
+  if (act === 'pause') { s.paused = !s.paused; save(); renderScheduled(); toast(s.paused ? 'הדו"ח הושהה' : 'הדו"ח הופעל'); return; }
+  if (act === 'edit') { const spec = parseQuestion(s.q); return schedModal({ spec, title:s.title }, s); }
+  if (act === 'del') {
+    if (!confirm(`למחוק את הדו"ח "${s.title}"?`)) return;
+    STORE.scheduled = STORE.scheduled.filter(x => x.id !== id); save(); updateCounts(); renderScheduled();
+  }
+}
+
+/* ---------- F11 שאלות ללא מענה ---------- */
+function renderGaps() {
+  const g = STORE.gaps;
+  $('#gapsTable').innerHTML = g.length ? `<div class="tablewrap"><table class="data" style="min-width:700px">
+    <thead><tr><th>תאריך ושעה</th><th>המשתמש ששאל</th><th>טקסט השאלה</th><th>מה חסר במערכת</th></tr></thead>
+    <tbody>${g.map(x => `<tr><td>${fDT(new Date(x.ts))}</td><td>${esc(x.user)}</td>
+      <td style="white-space:normal;max-width:34ch">${esc(x.q)}</td>
+      <td style="white-space:normal;max-width:44ch" class="muted">${esc(x.missing)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="pager"><span>${num(g.length)} שאלות נרשמו · הדו"ח נשלח שבועית ל-PM ולצוות הפיתוח</span></div>`
+    : `<div class="empty"><span class="big">🚧</span>לא נרשמו שאלות ללא מענה.<br>
+       <span class="small">נסו לשאול למשל: "למי מהנכנסים ביוני יש עבר פלילי?"</span></div>`;
+}
+function gapsMail() {
+  const g = STORE.gaps.slice(0, 50);
+  const byQ = {};
+  for (const x of g) byQ[x.q] = (byQ[x.q] || 0) + 1;
+  openModal({ title:'דו"ח שבועי — שאלות ללא מענה', tag:'F11', wide:true,
+    body:`<div class="mail"><div class="mh"><b>אל:</b> דנה אבידן (מנהלת מוצר), צוות פיתוח — רשימת תפוצה<br>
+      <b>נושא:</b> [אוטומטי] שאלות ללא מענה — שבוע שהסתיים ב-${fDate(NOW)}</div>
+      <div class="mb">
+        <p style="margin:0 0 10px">בשבוע החולף נרשמו <b>${num(g.length)}</b> שאלות שהמערכת לא יכלה לענות עליהן,
+          מתוכן <b>${num(Object.keys(byQ).length)}</b> שאלות שונות.</p>
+        ${g.length ? `<table class="schema"><thead><tr><th>תאריך</th><th>משתמש</th><th>שאלה</th><th>פער</th></tr></thead>
+          <tbody>${g.map(x => `<tr><td class="nowrap">${fDate(new Date(x.ts))}</td><td>${esc(x.user)}</td>
+            <td>${esc(x.q)}${byQ[x.q] > 1 ? ` <span class="pill neutral">×${byQ[x.q]}</span>` : ''}</td>
+            <td class="muted">${esc(x.missing)}</td></tr>`).join('')}</tbody></table>`
+          : '<p class="muted">לא נרשמו שאלות השבוע.</p>'}
+      </div></div>`,
+    footer:`<button class="btn primary" data-close>סגור</button>` });
+}
+
+/* ---------- F12 דו"ח Feedback ---------- */
+function renderFeedback() {
+  const fb = STORE.feedback;
+  const up = fb.filter(f => f.v === 'up').length, down = fb.length - up;
+  $('#fbStats').innerHTML = [
+    ['👍', up, 'עזרה'], ['👎', down, 'לא עזרה'],
+    ['📊', fb.length ? pct(up, fb.length) + '%' : '—', 'שיעור שביעות רצון'],
+    ['📝', fb.filter(f => f.note).length, 'הערות חופשיות']
+  ].map(([i, v, l]) => `<div class="card stat"><b>${i} ${typeof v === 'number' ? num(v) : v}</b><span>${esc(l)}</span></div>`).join('');
+  // קיבוץ Feedback מרובה על אותה שאלה
+  const groups = {};
+  for (const f of fb) {
+    const k = f.q;
+    groups[k] = groups[k] || { q:k, up:0, down:0, notes:[], last:0, users:new Set() };
+    groups[k][f.v]++; groups[k].last = Math.max(groups[k].last, f.ts); groups[k].users.add(f.user);
+    if (f.note) groups[k].notes.push(`${f.user}: ${f.note}`);
+  }
+  const rows = Object.values(groups).sort((a, b) => b.last - a.last);
+  $('#fbTable').innerHTML = rows.length ? `<div class="tablewrap"><table class="data" style="min-width:760px">
+    <thead><tr><th>עדכון אחרון</th><th>שאלה</th><th>👍</th><th>👎</th><th>משתמשים</th><th>הערות חופשיות</th></tr></thead>
+    <tbody>${rows.map(r => `<tr><td>${fDT(new Date(r.last))}</td>
+      <td style="white-space:normal;max-width:34ch">${esc(r.q)}</td>
+      <td>${num(r.up)}</td><td>${num(r.down)}</td><td>${num(r.users.size)}</td>
+      <td style="white-space:normal;max-width:40ch" class="muted">${r.notes.length ? esc(r.notes.join(' · ')) : '—'}</td></tr>`).join('')}</tbody>
+    </table></div><div class="pager"><span>SLA לבחינת ה-PM: שבועי · המשתמש אינו מקבל תגובה אוטומטית ב-V1</span></div>`
+    : `<div class="empty"><span class="big">👍</span>לא נאסף Feedback עדיין.<br>
+       <span class="small">בסוף כל תשובה מופיעה השאלה "האם התשובה עזרה?"</span></div>`;
+}
+
+/* ---------- NFR6 Audit log ---------- */
+function renderAudit() {
+  const term = $('#auditSearch').value.trim();
+  let list = STORE.audit;
+  if (term) list = list.filter(a => a.q.includes(term) || a.user.includes(term));
+  $('#auditTable').innerHTML = list.length ? `<div class="tablewrap"><table class="data" style="min-width:820px">
+    <thead><tr><th>תאריך ושעה</th><th>משתמש</th><th>תפקיד</th><th>טקסט השאילתה</th><th>תוצאה</th><th>זמן תגובה</th><th>רשומות</th></tr></thead>
+    <tbody>${list.map(a => `<tr><td>${fDT(new Date(a.ts))}</td><td>${esc(a.user)}</td><td>${esc(a.role)}</td>
+      <td style="white-space:normal;max-width:38ch">${esc(a.q)}</td>
+      <td>${a.result === 'נענתה' ? '<span class="pill ok">נענתה</span>' : '<span class="pill warn">ללא מענה</span>'}</td>
+      <td><span class="ltr">${esc(a.latency)}s</span></td><td>${num(a.records)}</td></tr>`).join('')}</tbody></table></div>
+    <div class="pager"><span>${num(list.length)} רשומות ביומן · נשמר לצורכי בקרה ואבטחת מידע</span></div>`
+    : `<div class="empty"><span class="big">📜</span>היומן ריק.</div>`;
+}
+function exportAudit() {
+  const head = ['תאריך ושעה','משתמש','תפקיד','שאילתה','תוצאה','זמן תגובה (שנ׳)','רשומות'];
+  const lines = [head.join(';')].concat(STORE.audit.map(a =>
+    [fDT(new Date(a.ts)), a.user, a.role, `"${a.q.replace(/"/g,'""')}"`, a.result, a.latency, a.records].join(';')));
+  download(`${fDate(new Date()).replace(/\//g,'-')}_audit-log.csv`, 'text/csv;charset=utf-8', '﻿' + lines.join('\r\n'));
+  toast('📜 יומן הבקרה יוצא לקובץ');
+}
+function exportGaps() {
+  const head = ['תאריך','משתמש','שאלה','פער'];
+  const lines = [head.join(';')].concat(STORE.gaps.map(g =>
+    [fDT(new Date(g.ts)), g.user, `"${g.q.replace(/"/g,'""')}"`, `"${g.missing.replace(/"/g,'""')}"`].join(';')));
+  download(`${fDate(new Date()).replace(/\//g,'-')}_שאלות-ללא-מענה.csv`, 'text/csv;charset=utf-8', '﻿' + lines.join('\r\n'));
+  toast('🚧 דו"ח השאלות ללא מענה יוצא לקובץ');
+}
+
+/* ---------- מקורות ו-Schema ---------- */
+function renderSources() {
+  const byS = {};
+  for (const r of RECORDS) byS[r.srcId] = (byS[r.srcId] || 0) + 1;
+  $('#srcStats').innerHTML = Object.values(SOURCES).map(s => {
+    const c = byS[s.id] || 0;
+    return `<div class="card stat"><b>${s.icon} ${num(c)}</b><span>${esc(s.label)} · ${pct(c, RECORDS.length)}% מהרשומות<br>
+      סוג מעבר: ${esc(s.type)} · נקודות: ${CROSSINGS[s.id].length}</span></div>`;
+  }).join('') + `<div class="card stat"><b>🗃️ ${num(RECORDS.length)}</b>
+    <span>סה"כ רשומות במוקאפ · ${num(PEOPLE.length)} אנשים · 08/2025–08/2026<br>
+    בייצור: עד 10 מיליון רשומות <span class="ftag">NFR3</span></span></div>`;
+  $('#srcGaps').innerHTML = `<ul style="margin:0;padding-inline-start:18px">
+    ${KNOWN_GAPS.map(g => `<li style="margin-bottom:6px"><b>${esc(SOURCES[g.src].short)}:</b> ${esc(g.text)}
+      <span class="pill ${g.kind === 'conflict' ? 'calc' : 'warn'}">${g.kind === 'conflict' ? 'התנגשות' : 'פער'}</span></li>`).join('')}
+  </ul>`;
+  const srcIds = Object.keys(SOURCES);
+  $('#schemaTable').innerHTML = `<thead><tr><th>שדה (schema מאוחד)</th>
+    ${srcIds.map(s => `<th>${SOURCES[s].icon} ${esc(SOURCES[s].short)}</th>`).join('')}<th>הערות</th></tr></thead>
+    <tbody>${FIELDS.map(f => `<tr><td><b>${esc(f.he)}</b> <span class="muted small ltr">${esc(f.k)}</span></td>
+      ${srcIds.map(s => (f.partial || []).includes(s) ? '<td><span class="pill warn">חלקי</span></td>'
+        : f.srcs.includes(s) ? '<td class="y">✓</td>' : `<td class="n">${NA}</td>`).join('')}
+      <td class="muted">${esc(f.note || '')}</td></tr>`).join('')}</tbody>`;
+}
+
+/* ---------- מדריך הדגמה ---------- */
+const COVERAGE = [
+  ['F1','שאילתה בשפה טבעית','תיבת שאלה חופשית בעברית; תיעתוק לטיני של שמות מוצג כפי שהוא בנתונים'],
+  ['F2','דיאלוג הבהרה','4 טריגרים: אירוע ללא תאריך (חובה), תקופה עמומה, שם דו-משמעי, סוג מעבר — עם "דלג" וברירת מחדל שקופה'],
+  ['F3','תשובה מסוכמת','1–3 משפטים, נתון מרכזי מודגש, הקשר "X מתוך סך של Y", כרטיסי KPI'],
+  ['F4','ויזואליזציה אוטומטית','ציר זמן / עמודות / עוגה / עמודות מוערמות — נבחר לפי סוג השאלה'],
+  ['F5','Drill-down','לחיצה על גרף או על "רשומות גולמיות" → טבלה עם סינון, מיון ודפדוף; שדות רלוונטיים בלבד'],
+  ['F6','מחוון אמינות','✅ מלא / ⚠️ חלקי / 🔢 מחושב + טולטיפ עם פירוט הפער'],
+  ['F7','ייצוא Excel','רשומות גולמיות, כותרות בעברית, שם קובץ = תאריך + תמצית השאלה'],
+  ['F8','ייצוא PDF/PPT/Word','בחירת פורמט, כולל שאלה, תמצית, גרפים, תאריך הפקה ושם משתמש'],
+  ['F9','היסטוריית שאילתות','שמירה ב-localStorage, חיפוש, סינון, שחזור בלחיצה, מועדפים, שמירה 6 חודשים'],
+  ['F10','דו"חות מתוזמנים','תדירות (יומי/שבועי/חודשי/מותאם), נמענים מרשימה סגורה, קובץ מצורף, ניהול + תצוגת המייל'],
+  ['F11','שאלות ללא מענה','הודעה מסבירה "למה" + רישום אוטומטי בדו"ח שבועי ל-PM ולפיתוח'],
+  ['F12','Feedback','👍/👎 בסוף כל תשובה, הערה חופשית ב-👎, דו"ח גולמי מקובץ לפי שאלה'],
+  ['NFR1','זמן תגובה','מוצג בכל תשובה ובכותרת (סימולציה של ≤10 שניות)'],
+  ['NFR6','Audit log','מסך יומן: משתמש, תפקיד, טקסט השאלה, תאריך/שעה, תוצאה'],
+  ['NFR7','שפה','ממשק מלא בעברית RTL; תיעתוק לטיני מוצג בכיוון LTR מבודד'],
+  ['NFR8','שמירת נתונים','היסטוריה 6 חודשים (גריעה אוטומטית); Feedback ושאלות ללא מענה — ללא הגבלה'],
+  ['NFR10','נגישות','ניווט מקלדת בגרפים, aria-labels, ניגודיות, מצב כהה, "דלג לתוכן"']
+];
+const NOT_IN_SCOPE = ['שאלות בשפה הערבית (נתונים בערבית — כן)','ניהול הרשאות ורמות גישה',
+  'שילוב במערכת קיימת (V2)','שאילתות על נתונים שאינם כניסה/יציאה','אפליקציה ניידת'];
+function renderAbout() {
+  $('#aboutCards').innerHTML = [
+    ['🧪','נתונים סינתטיים', `${num(RECORDS.length)} רשומות מעבר של ${num(PEOPLE.length)} אנשים, 4 מקורות, 08/2025–08/2026.
+      נוצרים בדפדפן עם seed קבוע — אותם נתונים בכל טעינה. אין Backend ואין קריאות רשת.`],
+    ['🗺️','מסלול הדגמה מוצע', `1) שאלה בסיסית → 2) שאלה עם "לאחרונה" (הבהרה) → 3) לחיצה על הגרף (drill-down) →
+      4) ייצוא Excel → 5) שמירה כדו"ח מתוזמן + תצוגת מייל → 6) שאלה על עבר פלילי (ללא מענה) → 7) מסכי ה-PM.`],
+    ['👥','החלפת פרסונה','בחירת המשתמש בכותרת מחליפה את שם החוקר/האנליסט/PM — נשמר בהיסטוריה וב-Audit log.'],
+    ['🚫','מחוץ לתחולה — V1', NOT_IN_SCOPE.map(x => '• ' + x).join('<br>')]
+  ].map(([i, t, d]) => `<div class="card" style="padding:14px 16px">
+    <h3 style="margin:0 0 6px;font-size:15px">${i} ${esc(t)}</h3><p class="small muted" style="margin:0">${d}</p></div>`).join('');
+  $('#coverTable').innerHTML = `<thead><tr><th style="width:70px">דרישה</th><th style="width:190px">שם</th><th>מימוש במוקאפ</th></tr></thead>
+    <tbody>${COVERAGE.map(([id, n, d]) => `<tr><td><b class="ltr">${esc(id)}</b></td><td>${esc(n)}</td>
+      <td class="muted">${esc(d)}</td></tr>`).join('')}</tbody>`;
+}
+
+/* ---------- שאלות לדוגמה ---------- */
+// נבחר מתוך הנתונים: אדם עם שם ייחודי ומספר תנועות גבוה — להדגמת שאילתת אדם ממוקדת
+function busiestPerson() {
+  const cnt = {}, byName = {};
+  for (const r of RECORDS) { cnt[r.pid] = (cnt[r.pid] || 0) + 1; byName[r.nameHe] = (byName[r.nameHe] || new Set()).add(r.pid); }
+  const uniq = Object.entries(cnt)
+    .filter(([pid]) => byName[PEOPLE_BY_ID[pid].nameHe].size === 1)
+    .sort((a, b) => b[1] - a[1]);
+  return uniq.length ? PEOPLE_BY_ID[uniq[0][0]].nameHe : PEOPLE[0].nameHe;
+}
+const DEMO_QUESTIONS = [
+  'כמה כניסות היו ביולי 2026?',
+  'מגמת יציאות דרך מעברים יבשתיים ב-12 החודשים האחרונים',
+  'פילוח כניסות לפי אזרחות ביוני 2026',
+  'כניסות ויציאות לפי חודש לפי סוג מעבר בשנה האחרונה',
+  '10 נקודות המעבר העמוסות ביותר ב-2026',
+  'כמה כניסות דרך חברות תעופה זרות בפברואר 2026?',
+  `כל התנועות של "${busiestPerson()}" בשנה האחרונה`,
+  'כל התנועות של דרוויש בשנה האחרונה',
+  'מי נמצא כרגע במדינה מבין מי שנכנס דרך מעברים ימיים?',
+  'כמה אנשים נכנסו לאחרונה דרך מעברי גבול?',
+  'כמה זרים נכנסו במהלך המלחמה?',
+  'למי מהנכנסים ביוני יש עבר פלילי?'
+];
+
+/* ---------- אתחול ---------- */
+function init() {
+  // ערכת נושא
+  const savedTheme = STORE.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  $('#themeBtn').addEventListener('click', () => {
+    const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', t); STORE.theme = t; save();
+  });
+  // ניווט
+  $$('.nav-item').forEach(b => b.addEventListener('click', () => showView(b.dataset.view)));
+  // תפקיד
+  $('#roleSel').addEventListener('change', e => {
+    CURRENT_ROLE = e.target.value;
+    $('#avatar').textContent = me().initials;
+    toast(`מחובר כ-${esc(me().name)} — ${esc(me().role)}`);
+  });
+  $('#ftagToggle').addEventListener('change', e => document.body.classList.toggle('show-ftags', e.target.checked));
+  // שאילתה
+  const q = $('#q');
+  q.addEventListener('input', () => autoGrow(q));
+  q.addEventListener('focus', () => $('#composer').classList.add('focus'));
+  q.addEventListener('blur', () => $('#composer').classList.remove('focus'));
+  q.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); askQuestion(q.value); }
+  });
+  $('#askBtn').addEventListener('click', () => askQuestion(q.value));
+  $('#clearBtn').addEventListener('click', () => { thread().innerHTML = ''; welcome(); });
+  $('#suggestRow').innerHTML = DEMO_QUESTIONS.map(t => `<button class="chip" data-q="${esc(t)}">${esc(t)}</button>`).join('');
+  $('#suggestRow').addEventListener('click', e => {
+    const c = e.target.closest('[data-q]'); if (c) askQuestion(c.dataset.q);
+  });
+  // מסכי ניהול
+  bindList($('#histList'), historyAction);
+  bindList($('#favList'), historyAction);
+  bindList($('#schedList'), schedAction);
+  $('#histSearch').addEventListener('input', renderHistory);
+  $('#histFilter').addEventListener('change', renderHistory);
+  $('#histClear').addEventListener('click', () => {
+    if (!confirm('למחוק את כל היסטוריית השאילתות?')) return;
+    STORE.history = []; save(); updateCounts(); renderHistory(); renderFavorites();
+  });
+  $('#auditSearch').addEventListener('input', renderAudit);
+  $('#auditExport').addEventListener('click', exportAudit);
+  $('#gapsExport').addEventListener('click', exportGaps);
+  $('#gapsPreview').addEventListener('click', gapsMail);
+
+  pruneHistory(); updateCounts(); welcome();
+}
+function welcome() {
+  sysTurn(`<div class="card bubble">
+    <p style="margin:0 0 6px"><b>שלום ${esc(me().name)}.</b> אפשר לשאול אותי בעברית חופשית על נתוני כניסה ויציאה —
+      טיסות (חברה מקומית וחברות זרות), מעברים יבשתיים ומעברים ימיים.</p>
+    <p class="small muted" style="margin:0">
+      במוקאפ טעונות ${num(RECORDS.length)} רשומות סינתטיות של ${num(PEOPLE.length)} אנשים לתקופה 08/2025–08/2026.
+      אם השאלה תהיה עמומה — אשאל שאלת הבהרה לפני שאענה. לכל תשובה יוצג מחוון אמינות, וניתן לצלול לרשומות הגולמיות,
+      לייצא, לתזמן דו"ח חוזר ולדרג את התשובה.</p>
+  </div>`);
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+
+</body>
+</html>
