@@ -1,0 +1,2121 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  File: noizz26.html
+  Purpose: משחק פרומו בסגנון GTA2 (מבט-על, נהיגה חופשית בעיר) לקידום האקתון
+           NOIZZ26. השחקן נוהג/הולך בעיר, אוסף "סימני שאלה" פזורים במפה,
+           ובכל איסוף נפתחת שאלה על ההאקתון עם תשובות לבחירה.
+  Provides:
+           1. מנוע משחק מלא על <canvas> — יצירת עיר, פיזיקת רכב, הליכה ברגל,
+              מצלמה עוקבת, מיני-מפה, שליטה במקלדת ובמגע.
+           2. מערכת חידון — מודאל שאלה נגיש, ניקוד, מסך סיום וסיכום תשובות.
+           3. עורך שאלות מובנה — הוספה/עריכה/מחיקה, שמירה ב-localStorage,
+              ייצוא וייבוא JSON.
+  Dependencies:
+           אין. קובץ HTML בודד, ללא ספריות חיצוניות, ללא גישה לרשת.
+           נשען רק על ממשקי דפדפן: Canvas 2D, Web Audio, localStorage.
+  Editing questions:
+           כל השאלות נמצאות במערך DEFAULT_QUESTIONS שבראש בלוק ה-JavaScript
+           (חפשו את הכותרת "בלוק 1"). אפשר גם לערוך אותן מתוך המשחק דרך
+           מסך "עורך השאלות" ולייצא/לייבא אותן כקובץ JSON.
+  Security:
+           כל טקסט שמקורו בתוכן (שאלות/תשובות) מוזרק ל-DOM דרך textContent
+           בלבד ולעולם לא דרך innerHTML — כדי שתוכן שיודבק מבחוץ לא יוכל
+           להריץ סקריפט (XSS). ייבוא JSON עובר ולידציית סכימה קפדנית.
+  Author: Claude Code · 2026-09-07
+  ============================================================================
+-->
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NOIZZ26 — משחק ההאקתון</title>
+<meta name="description" content="משחק פרומו בסגנון GTA2 להאקתון NOIZZ26 — נוהגים בעיר, אוספים סימני שאלה ועונים על שאלות ההאקתון. קובץ HTML בודד.">
+<style>
+/* ==========================================================================
+   טוקני עיצוב — כל הצבעים והמידות במקום אחד כדי שיהיה קל למתג מחדש
+   ========================================================================== */
+:root{
+  --bg:#06060f;                 /* רקע כללי מאחורי הקנבס */
+  --panel:rgba(12,12,28,.94);   /* רקע חלוניות ומסכים */
+  --panel-2:#12122c;            /* רקע משני לכרטיסים בתוך חלוניות */
+  --panel-3:#1b1b3d;            /* רקע שלישוני לשדות קלט */
+  --line:rgba(125,145,235,.26); /* צבע גבולות עדין */
+  --ink:#eef1ff;                /* טקסט ראשי */
+  --ink-2:#b3bce0;              /* טקסט משני */
+  --muted:#7a83ab;              /* טקסט מעומעם */
+  --neon:#22e3ff;               /* צבע מותג ראשי — תכלת ניאון */
+  --neon-2:#ff2fa8;             /* צבע מותג משני — מג'נטה ניאון */
+  --gold:#ffd23f;               /* צבע סימני האיסוף והניקוד */
+  --ok:#37e08a;                 /* ירוק — תשובה נכונה */
+  --bad:#ff5470;                /* אדום — תשובה שגויה */
+  --r:14px;                     /* רדיוס פינות סטנדרטי */
+  --r-sm:9px;                   /* רדיוס פינות קטן */
+  --shadow:0 18px 50px rgba(0,0,0,.6); /* צל לחלוניות צפות */
+  --font:"Assistant","Rubik","Heebo","Segoe UI",Arial,sans-serif; /* גופן עברי עם נפילה בטוחה */
+}
+/* איפוס בסיסי — מודל קופסה אחיד לכל האלמנטים */
+*{box-sizing:border-box}
+/* המסמך תופס את כל החלון ללא גלילה — המשחק הוא מסך מלא */
+html,body{height:100%;margin:0;overflow:hidden}
+/* הגדרות גוף המסמך: רקע כהה, גופן עברי, ביטול הבהוב כחול בלחיצה בנייד */
+body{background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-tap-highlight-color:transparent}
+/* הכלל הזה נדרש כי אלמנטים עם display:flex מתעלמים מתכונת hidden */
+[hidden]{display:none!important}
+/* טבעת פוקוס ברורה לניווט מקלדת (נגישות) */
+:focus-visible{outline:3px solid var(--neon);outline-offset:2px}
+
+/* ==========================================================================
+   קנבס המשחק — שכבת הבסיס, פרושה על כל המסך
+   ========================================================================== */
+#game{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;background:#0a0a16}
+
+/* ==========================================================================
+   HUD — שכבת המידע שמעל המשחק (ניקוד, מיני-מפה, רמזים, שליטת מגע)
+   ========================================================================== */
+/* המעטפת שקופה ללחיצות כדי שלא תחסום את המשחק; הילדים מחזירים pointer-events */
+.hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+/* שורת הכרטיסיות העליונה */
+.hud-top{position:absolute;top:calc(10px + env(safe-area-inset-top));inset-inline-start:12px;inset-inline-end:156px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+/* כרטיסיית נתון בודדת (ניקוד / סימנים / נכונות) */
+.hud-chip{pointer-events:auto;display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 13px;font-size:14px;font-weight:700;backdrop-filter:blur(6px)}
+/* התווית הקטנה בתוך הכרטיסייה */
+.hud-label{color:var(--muted);font-weight:600;font-size:12px}
+/* ערך הניקוד מודגש בזהב */
+#hudScore{color:var(--gold)}
+/* כפתורי HUD עגולים (שמע / השהיה) */
+.hud-btn{pointer-events:auto;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:15px;cursor:pointer;display:grid;place-items:center}
+/* משוב ריחוף לכפתורי ה-HUD */
+.hud-btn:hover{border-color:var(--neon);color:var(--neon)}
+/* המיני-מפה בפינה העליונה הנגדית */
+.minimap{position:absolute;top:calc(10px + env(safe-area-inset-top));inset-inline-end:12px;width:132px;height:132px;border:1px solid var(--line);border-radius:12px;background:rgba(8,8,20,.85);backdrop-filter:blur(4px)}
+/* שורת הרמז התחתונה (למשל "לחץ E לכניסה לרכב") */
+.hud.has-touch .hint{bottom:calc(150px + env(safe-area-inset-bottom))} /* פינוי מקום לכפתורי המגע */
+.hint{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom));inset-inline-start:50%;transform:translateX(50%);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 16px;font-size:13px;color:var(--ink-2);white-space:nowrap;max-width:92vw;overflow:hidden;text-overflow:ellipsis}
+/* הודעה צפה זמנית (טוסט) במרכז המסך */
+.toast{position:absolute;top:22%;inset-inline-start:50%;transform:translateX(50%);background:var(--panel);border:1px solid var(--neon);border-radius:var(--r);padding:10px 20px;font-weight:800;color:var(--neon);box-shadow:var(--shadow);animation:pop .25s ease-out}
+/* אנימציית הופעה קלה לטוסט */
+@keyframes pop{from{opacity:0;transform:translateX(50%) scale(.9)}to{opacity:1;transform:translateX(50%) scale(1)}}
+
+/* ==========================================================================
+   שליטת מגע — כפתורים על המסך למכשירים ניידים (מקבילים לחצי המקלדת)
+   ========================================================================== */
+.touch{position:absolute;inset:0;pointer-events:none}
+/* אשכול כפתורי הכיוון בפינה אחת */
+.pad{position:absolute;bottom:calc(18px + env(safe-area-inset-bottom));inset-inline-start:16px;display:grid;grid-template-columns:repeat(3,58px);grid-template-rows:repeat(2,58px);gap:6px}
+/* כפתור מגע בודד */
+.tbtn{pointer-events:auto;background:rgba(20,20,45,.8);border:1px solid var(--line);border-radius:12px;color:var(--ink);font-size:20px;display:grid;place-items:center;user-select:none;touch-action:none}
+/* מצב לחוץ — משוב ויזואלי מיידי */
+.tbtn.on{background:rgba(34,227,255,.28);border-color:var(--neon)}
+/* מיקום כפתור ה"מעלה" מעל כפתור ה"מטה" בעמודה האמצעית */
+.pad .up{grid-column:2;grid-row:1}
+.pad .down{grid-column:2;grid-row:2}
+.pad .left{grid-column:3;grid-row:2}
+.pad .right{grid-column:1;grid-row:2}
+/* כפתור הפעולה (כניסה/יציאה מרכב) בצד הנגדי */
+.act{position:absolute;bottom:calc(28px + env(safe-area-inset-bottom));inset-inline-end:18px;width:74px;height:74px;border-radius:50%;font-size:15px;font-weight:800}
+
+/* ==========================================================================
+   מסכים מלאים — פתיחה, השהיה, סיום, עורך שאלות
+   ========================================================================== */
+.screen{position:fixed;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;padding:20px;background:radial-gradient(circle at 50% 30%,rgba(34,227,255,.10),transparent 60%),rgba(4,4,12,.92);backdrop-filter:blur(7px);overflow:auto}
+/* הקופסה המרכזית בתוך כל מסך */
+.card{width:min(680px,100%);background:var(--panel);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);padding:26px 26px 22px;margin:auto}
+/* קופסה רחבה יותר עבור מסך העורך */
+.card.wide{width:min(900px,100%)}
+/* לוגו/כותרת המשחק */
+.logo{font-size:clamp(38px,9vw,68px);font-weight:900;letter-spacing:2px;line-height:1;margin:0;text-align:center;background:linear-gradient(95deg,var(--neon),var(--neon-2));-webkit-background-clip:text;background-clip:text;color:transparent;direction:ltr}
+/* תת-כותרת מתחת ללוגו */
+.tagline{text-align:center;color:var(--ink-2);margin:8px 0 4px;font-size:16px}
+/* שורת "סוג המשחק" מעל הלוגו */
+.kicker{text-align:center;color:var(--neon-2);font-weight:800;letter-spacing:3px;font-size:12px;margin:0 0 6px}
+/* פסקת טקסט רגילה בתוך כרטיס */
+.card p{color:var(--ink-2);line-height:1.65;font-size:15px}
+/* כותרת משנה בתוך כרטיס */
+.card h2{font-size:20px;margin:22px 0 10px}
+/* רשימת ההוראות */
+.keys{list-style:none;padding:0;margin:14px 0;display:grid;gap:8px}
+.keys li{display:flex;align-items:center;gap:10px;color:var(--ink-2);font-size:14px}
+/* תגית מקש (kbd) */
+kbd{background:var(--panel-3);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:2px 8px;font-family:inherit;font-size:12px;font-weight:700;color:var(--ink);min-width:26px;display:inline-block;text-align:center}
+/* שורת כפתורים */
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+/* כפתור בסיסי */
+.btn{flex:1 1 160px;min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;padding:10px 16px;transition:transform .08s ease,border-color .15s ease}
+/* לחיצה — משוב מיידי */
+.btn:active{transform:translateY(1px)}
+/* ריחוף — הדגשת המסגרת */
+.btn:hover{border-color:var(--neon)}
+/* כפתור ראשי בולט */
+.btn.primary{background:linear-gradient(95deg,var(--neon),#4aa8ff);color:#04121a;border-color:transparent}
+/* כפתור מסוכן (מחיקה/איפוס) */
+.btn.danger{color:var(--bad);border-color:rgba(255,84,112,.4)}
+/* כפתור קטן לשימוש בתוך רשימות */
+.btn.small{flex:0 0 auto;min-height:34px;padding:5px 12px;font-size:13px}
+
+/* ==========================================================================
+   מודאל השאלה — החלון שנפתח בכל איסוף סימן
+   ========================================================================== */
+.modal{position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(4,4,12,.86);backdrop-filter:blur(7px);overflow:auto}
+/* גוף המודאל */
+.qbox{width:min(620px,100%);background:var(--panel);border:1px solid var(--neon);border-radius:20px;box-shadow:0 0 60px rgba(34,227,255,.18),var(--shadow);padding:24px;margin:auto}
+/* שורת המונה מעל השאלה */
+.qmeta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);font-weight:700;letter-spacing:1px;margin-bottom:10px}
+/* טקסט השאלה */
+.qtext{font-size:clamp(18px,3.4vw,23px);font-weight:800;line-height:1.45;margin:0 0 18px}
+/* רשימת התשובות */
+.answers{display:grid;gap:9px}
+/* כפתור תשובה */
+.ans{display:flex;align-items:flex-start;gap:11px;text-align:start;width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;color:var(--ink);font-family:inherit;font-size:15px;line-height:1.45;cursor:pointer;transition:border-color .15s ease,background .15s ease}
+/* ריחוף על תשובה שעדיין ניתן לבחור */
+.ans:not(:disabled):hover{border-color:var(--neon);background:#181838}
+/* המספר הסידורי של התשובה (1-6) לניווט מקלדת */
+.ans .num{flex:0 0 24px;height:24px;border-radius:7px;background:var(--panel-3);display:grid;place-items:center;font-size:12px;font-weight:800;color:var(--ink-2)}
+/* סימון התשובה הנכונה אחרי מענה */
+.ans.correct{border-color:var(--ok);background:rgba(55,224,138,.14)}
+.ans.correct .num{background:var(--ok);color:#03210f}
+/* סימון התשובה השגויה שנבחרה */
+.ans.wrong{border-color:var(--bad);background:rgba(255,84,112,.13)}
+.ans.wrong .num{background:var(--bad);color:#2b0209}
+/* אחרי מענה הכפתורים מנוטרלים — סמן ברירת מחדל ולא "יד" */
+.ans:disabled{cursor:default}
+/* תיבת המשוב וההסבר שמופיעה אחרי הבחירה */
+.feedback{margin-top:16px;border-radius:12px;padding:13px 15px;font-size:14px;line-height:1.6;border:1px solid var(--line);background:var(--panel-2)}
+/* גוון ירוק/אדום לתיבת המשוב לפי נכונות */
+.feedback.ok{border-color:rgba(55,224,138,.45)}
+.feedback.no{border-color:rgba(255,84,112,.45)}
+/* כותרת המשוב ("נכון!" / "לא מדויק") */
+.feedback strong{display:block;font-size:16px;margin-bottom:4px}
+.feedback.ok strong{color:var(--ok)}
+.feedback.no strong{color:var(--bad)}
+
+/* ==========================================================================
+   מסך סיום — סיכום התוצאה ורשימת כל השאלות
+   ========================================================================== */
+/* שורת מדדי סיכום */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:18px 0}
+/* כרטיס מדד בודד */
+.stat{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);padding:14px 10px;text-align:center}
+/* הערך הגדול בכרטיס המדד */
+.stat b{display:block;font-size:26px;color:var(--neon)}
+/* התווית מתחת לערך */
+.stat span{font-size:12px;color:var(--muted)}
+/* רשימת הסקירה בסוף המשחק — עם גלילה כדי לא לפרוץ את המסך */
+.review{max-height:38vh;overflow:auto;display:grid;gap:8px;margin-top:6px;padding-inline-end:4px}
+/* שורת סקירה בודדת */
+.review-item{background:var(--panel-2);border:1px solid var(--line);border-inline-start:3px solid var(--muted);border-radius:var(--r-sm);padding:10px 13px;font-size:13px;line-height:1.55}
+/* צביעת גבול השורה לפי נכונות התשובה שניתנה */
+.review-item.ok{border-inline-start-color:var(--ok)}
+.review-item.no{border-inline-start-color:var(--bad)}
+/* טקסט התשובה הנכונה בתוך שורת הסקירה */
+.review-item em{color:var(--ok);font-style:normal;font-weight:700}
+
+/* ==========================================================================
+   עורך השאלות — מסך ניהול התוכן
+   ========================================================================== */
+/* רשימת השאלות הקיימות */
+.qlist{display:grid;gap:9px;max-height:44vh;overflow:auto;margin:12px 0;padding-inline-end:4px}
+/* כרטיס שאלה ברשימה */
+.qitem{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 13px;display:flex;gap:10px;align-items:flex-start}
+/* גוף הכרטיס (טקסט השאלה והתשובה הנכונה) */
+.qitem .body{flex:1;min-width:0}
+/* טקסט השאלה בכרטיס — נחתך בשורה אחת אם ארוך */
+.qitem .body b{display:block;font-size:14px;margin-bottom:3px;overflow-wrap:anywhere}
+/* התשובה הנכונה מוצגת מתחת בירוק */
+.qitem .body span{font-size:12px;color:var(--ok);overflow-wrap:anywhere}
+/* שדות טופס העריכה */
+.field{display:grid;gap:5px;margin-bottom:11px}
+/* תווית שדה */
+.field label{font-size:13px;color:var(--ink-2);font-weight:700}
+/* קלט טקסט ואזור טקסט */
+.field input[type=text],.field textarea{width:100%;background:var(--panel-3);border:1px solid var(--line);border-radius:9px;color:var(--ink);font-family:inherit;font-size:14px;padding:9px 11px;resize:vertical}
+/* שורת תשובה בטופס: רדיו לנכונה + שדה טקסט + כפתור הסרה */
+.ansrow{display:flex;gap:8px;align-items:center}
+/* הרדיו מוגדל מעט לנוחות לחיצה */
+.ansrow input[type=radio]{width:18px;height:18px;accent-color:var(--ok);flex:0 0 auto}
+/* הודעת שגיאה/הצלחה בעורך */
+.note{font-size:13px;border-radius:9px;padding:9px 12px;margin-top:10px}
+.note.err{background:rgba(255,84,112,.12);border:1px solid rgba(255,84,112,.45);color:#ffb3c0}
+.note.ok{background:rgba(55,224,138,.12);border:1px solid rgba(55,224,138,.45);color:#a9f2cd}
+/* שורת "אין שאלות" */
+.empty{color:var(--muted);font-size:14px;text-align:center;padding:18px}
+
+/* ==========================================================================
+   התאמות למסכים קטנים ולהעדפת תנועה מופחתת (נגישות)
+   ========================================================================== */
+@media (max-width:560px){
+  .card{padding:20px 16px 16px;border-radius:18px}   /* ריווח קטן יותר בנייד */
+  .stats{grid-template-columns:1fr 1fr}              /* שני מדדים בשורה */
+  .minimap{width:96px;height:96px}                   /* מיני-מפה קטנה יותר */
+  .hud-top{inset-inline-end:116px}                   /* שמירת מרווח מהמיני-מפה הקטנה */
+  .hud-chip{padding:5px 10px;font-size:13px}         /* כרטיסיות צרות יותר */
+  .hint{font-size:12px}
+}
+/* משתמשים שביקשו תנועה מופחתת — ביטול אנימציות הממשק */
+@media (prefers-reduced-motion:reduce){
+  .toast{animation:none}
+  .btn{transition:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ==========================================================================
+     שכבה 1 — קנבס המשחק. כל העולם, הרכב והדמות מצוירים כאן.
+     ========================================================================== -->
+<canvas id="game" aria-label="מסך המשחק — עיר בתצוגת מבט על"></canvas>
+
+<!-- ==========================================================================
+     שכבה 2 — HUD: נתונים, מיני-מפה, רמזים וכפתורי מגע
+     ========================================================================== -->
+<div class="hud" id="hud" hidden>
+  <!-- שורת הנתונים העליונה -->
+  <div class="hud-top">
+    <div class="hud-chip"><span class="hud-label">ניקוד</span><span id="hudScore">0</span></div>
+    <div class="hud-chip"><span class="hud-label">סימנים</span><span id="hudMarks">0/0</span></div>
+    <div class="hud-chip"><span class="hud-label">נכונות</span><span id="hudCorrect">0</span></div>
+    <button class="hud-btn" id="btnSound" type="button" aria-pressed="true" title="שמע (M)">🔊</button>
+    <button class="hud-btn" id="btnPause" type="button" title="השהיה (Esc)">⏸</button>
+  </div>
+  <!-- מיני-מפה: מציגה את העיר, מיקום השחקן והסימנים שנותרו -->
+  <canvas class="minimap" id="minimap" width="132" height="132" aria-hidden="true"></canvas>
+  <!-- הודעה זמנית (למשל "+100") -->
+  <div class="toast" id="toast" role="status" hidden></div>
+  <!-- שורת רמז קבועה בתחתית -->
+  <div class="hint" id="hint"></div>
+  <!-- כפתורי מגע — מוצגים רק במכשירי מגע -->
+  <div class="touch" id="touch" hidden>
+    <div class="pad">
+      <button class="tbtn up"    type="button" data-key="up"    aria-label="קדימה">▲</button>
+      <button class="tbtn down"  type="button" data-key="down"  aria-label="אחורה">▼</button>
+      <button class="tbtn left"  type="button" data-key="left"  aria-label="שמאלה">◀</button>
+      <button class="tbtn right" type="button" data-key="right" aria-label="ימינה">▶</button>
+    </div>
+    <button class="tbtn act" id="btnAct" type="button" data-key="use" aria-label="כניסה או יציאה מהרכב">רכב</button>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     שכבה 3 — מסך הפתיחה
+     ========================================================================== -->
+<div class="screen" id="screenStart">
+  <div class="card">
+    <p class="kicker" id="startKicker">משחק ההאקתון</p>
+    <h1 class="logo" id="startLogo">NOIZZ26</h1>
+    <p class="tagline" id="startTagline"></p>
+    <p id="startIntro"></p>
+    <ul class="keys">
+      <li><kbd>W</kbd><kbd>↑</kbd> גז &nbsp;·&nbsp; <kbd>S</kbd><kbd>↓</kbd> בלימה ונסיעה לאחור</li>
+      <li><kbd>A</kbd><kbd>←</kbd> <kbd>D</kbd><kbd>→</kbd> היגוי &nbsp;·&nbsp; ברגל: תנועה לכל כיוון</li>
+      <li><kbd>E</kbd> כניסה או יציאה מהרכב &nbsp;·&nbsp; <kbd>Esc</kbd> השהיה &nbsp;·&nbsp; <kbd>M</kbd> שמע</li>
+      <li><kbd>1</kbd>–<kbd>6</kbd> בחירת תשובה במודאל השאלה &nbsp;·&nbsp; <kbd>Enter</kbd> אישור</li>
+    </ul>
+    <p id="startCount" style="text-align:center;font-weight:700;color:var(--gold)"></p>
+    <div class="row">
+      <button class="btn primary" id="btnStart" type="button">התחלת משחק</button>
+      <button class="btn" id="btnEditorFromStart" type="button">עורך השאלות</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     שכבה 4 — מסך השהיה
+     ========================================================================== -->
+<div class="screen" id="screenPause" hidden>
+  <div class="card" style="max-width:420px">
+    <h1 class="logo" style="font-size:34px">השהיה</h1>
+    <p style="text-align:center" id="pauseInfo"></p>
+    <div class="row">
+      <button class="btn primary" id="btnResume" type="button">חזרה למשחק</button>
+      <button class="btn" id="btnRestart" type="button">משחק חדש</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="btnEditorFromPause" type="button">עורך השאלות</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     שכבה 5 — מסך סיום
+     ========================================================================== -->
+<div class="screen" id="screenEnd" hidden>
+  <div class="card">
+    <p class="kicker">סיימת את המסלול</p>
+    <h1 class="logo" style="font-size:clamp(30px,7vw,48px)" id="endTitle">כל הכבוד!</h1>
+    <div class="stats">
+      <div class="stat"><b id="endScore">0</b><span>ניקוד</span></div>
+      <div class="stat"><b id="endCorrect">0/0</b><span>תשובות נכונות</span></div>
+      <div class="stat"><b id="endTime">0:00</b><span>זמן</span></div>
+    </div>
+    <p id="endBest" style="text-align:center;color:var(--gold);font-weight:700"></p>
+    <p id="endCta" style="text-align:center"></p>
+    <h2>סיכום השאלות</h2>
+    <div class="review" id="endReview"></div>
+    <div class="row">
+      <button class="btn primary" id="btnPlayAgain" type="button">משחק נוסף</button>
+      <button class="btn" id="btnEditorFromEnd" type="button">עורך השאלות</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     שכבה 6 — עורך השאלות (ניהול התוכן)
+     ========================================================================== -->
+<div class="screen" id="screenEditor" hidden>
+  <div class="card wide">
+    <p class="kicker">ניהול תוכן</p>
+    <h1 class="logo" style="font-size:clamp(26px,6vw,40px)">עורך השאלות</h1>
+    <p>כאן מוסיפים, עורכים ומוחקים את שאלות ההאקתון. השינויים נשמרים בדפדפן הזה בלבד — כדי להעביר אותם לקובץ או למחשב אחר השתמשו בייצוא וייבוא JSON.</p>
+
+    <!-- רשימת השאלות הקיימות -->
+    <div class="qlist" id="qlist"></div>
+
+    <!-- טופס הוספה/עריכה — מוסתר עד שלוחצים על "שאלה חדשה" או "עריכה" -->
+    <div id="qform" hidden style="border-top:1px solid var(--line);padding-top:16px">
+      <h2 id="qformTitle" style="margin-top:0">שאלה חדשה</h2>
+      <div class="field">
+        <label for="fQ">נוסח השאלה</label>
+        <textarea id="fQ" rows="2" maxlength="300" placeholder="לדוגמה: מתי מתחיל האקתון NOIZZ26?"></textarea>
+      </div>
+      <div class="field">
+        <label>תשובות — סמנו את העיגול של התשובה הנכונה</label>
+        <div id="fAnswers"></div>
+        <button class="btn small" id="btnAddAnswer" type="button" style="margin-top:6px">הוספת תשובה</button>
+      </div>
+      <div class="field">
+        <label for="fExplain">הסבר קצר (רשות) — יוצג לשחקן אחרי המענה</label>
+        <textarea id="fExplain" rows="2" maxlength="500" placeholder="לדוגמה: ההרשמה נסגרת שבוע לפני מועד הפתיחה."></textarea>
+      </div>
+      <div class="note err" id="formError" hidden></div>
+      <div class="row">
+        <button class="btn primary" id="btnSaveQ" type="button">שמירה</button>
+        <button class="btn" id="btnCancelQ" type="button">ביטול</button>
+      </div>
+    </div>
+
+    <!-- הודעת סטטוס כללית של העורך -->
+    <div class="note ok" id="editorNote" hidden></div>
+
+    <!-- פעולות ניהול -->
+    <div class="row">
+      <button class="btn primary" id="btnNewQ" type="button">שאלה חדשה</button>
+      <button class="btn" id="btnExport" type="button">ייצוא JSON</button>
+      <button class="btn" id="btnImport" type="button">ייבוא JSON</button>
+    </div>
+    <div class="row">
+      <button class="btn danger" id="btnResetQ" type="button">איפוס לשאלות ברירת המחדל</button>
+      <button class="btn" id="btnCloseEditor" type="button">סגירה וחזרה</button>
+    </div>
+    <!-- שדה קובץ מוסתר לייבוא; accept מגביל ל-JSON כדי לצמצם קלט לא רלוונטי -->
+    <input type="file" id="fileImport" accept="application/json,.json" hidden>
+  </div>
+</div>
+
+<!-- ==========================================================================
+     שכבה 7 — מודאל השאלה. נפתח בכל איסוף סימן ומשהה את המשחק.
+     ========================================================================== -->
+<div class="modal" id="quizModal" hidden role="dialog" aria-modal="true" aria-labelledby="quizText">
+  <div class="qbox">
+    <div class="qmeta">
+      <span id="quizIndex"></span>
+      <span id="quizBrand">NOIZZ26</span>
+    </div>
+    <h2 class="qtext" id="quizText"></h2>
+    <div class="answers" id="quizAnswers"></div>
+    <div class="feedback" id="quizFeedback" hidden></div>
+    <div class="row" id="quizContinueRow" hidden>
+      <button class="btn primary" id="btnContinue" type="button">המשך</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   NOIZZ26 — מנוע המשחק
+   הקוד כולו עטוף ב-IIFE ובמצב קפדני ('use strict') כדי לא לזהם את המרחב
+   הגלובלי ולמנוע יצירת משתנים בשוגג.
+   ============================================================================ */
+(function () {
+'use strict';
+
+/* ============================================================================
+   בלוק 1 — הגדרות ותוכן. זה החלק היחיד שצריך לערוך כדי להתאים את המשחק.
+   ============================================================================ */
+
+/* הגדרות כלליות של הפרומו והמשחק — שנו כאן טקסטים, ניקוד וכמות סימנים */
+var CONFIG = {
+  brand: 'NOIZZ26',                                    /* שם ההאקתון — מוצג בלוגו ובמודאל */
+  kicker: 'משחק ההאקתון',                              /* שורת העל מעל הלוגו */
+  tagline: 'קחו הגה, סעו בעיר ואספו את סימני השאלה',   /* משפט תיאור קצר */
+  intro: 'העיר מלאה בסימני שאלה זוהרים. כל סימן שתאספו פותח שאלה על האקתון NOIZZ26 — ענו נכון וצברו ניקוד. אספו את כולם כדי לסיים את המסלול.', /* פסקת הפתיחה */
+  cta: 'נתראה בהאקתון NOIZZ26.',                       /* קריאה לפעולה במסך הסיום */
+  markCount: 10,                                        /* כמה סימנים לפזר במפה (מוגבל למספר השאלות הקיימות) */
+  pointsCorrect: 100,                                   /* ניקוד על תשובה נכונה */
+  pointsWrong: 0,                                       /* ניקוד על תשובה שגויה */
+  showExplanation: true                                 /* האם להציג את שדה ההסבר אחרי המענה */
+};
+
+/* ----------------------------------------------------------------------------
+   ⚠️ שאלות לדוגמה — החליפו אותן בתוכן האמיתי של NOIZZ26.
+   מבנה כל שאלה:
+     q        — נוסח השאלה (מחרוזת, עד 300 תווים)
+     answers  — מערך של 2 עד 6 תשובות (מחרוזות)
+     correct  — האינדקס של התשובה הנכונה במערך, מתחיל מ-0
+     explain  — הסבר קצר שמוצג אחרי המענה (רשות)
+   אפשר לערוך כאן ידנית, או מתוך המשחק במסך "עורך השאלות".
+   הערה: אם ערכתם שאלות דרך העורך, הן נשמרו בדפדפן וגוברות על המערך הזה —
+   לחצו "איפוס לשאלות ברירת המחדל" בעורך כדי לחזור לתוכן שבקובץ.
+   ---------------------------------------------------------------------------- */
+var DEFAULT_QUESTIONS = [
+  {
+    q: 'מה כדאי לעשות בשעה הראשונה של האקתון?',
+    answers: ['להתחיל לכתוב קוד מיד', 'לעצב לוגו לצוות', 'לצמצם את הרעיון לבעיה אחת ממוקדת', 'לבחור שם למוצר'],
+    correct: 2,
+    explain: 'צוותים שמגדירים בעיה אחת ברורה בהתחלה מגיעים לדמו עובד הרבה יותר מהר.'
+  },
+  {
+    q: 'מה המשמעות של MVP בהקשר של האקתון?',
+    answers: ['השחקן המצטיין בצוות', 'המוצר המינימלי שמדגים את הערך', 'מסמך אפיון מלא', 'גרסה סופית מוכנה לייצור'],
+    correct: 1,
+    explain: 'Minimum Viable Product — הגרסה הקטנה ביותר שמוכיחה שהרעיון עובד.'
+  },
+  {
+    q: 'מהו הגודל המומלץ לצוות בהאקתון?',
+    answers: ['משתתף אחד בלבד', '10–12 חברי צוות', 'ללא הגבלה', '3–5 חברי צוות'],
+    correct: 3,
+    explain: 'צוות קטן מתכלל מהר יותר ומאפשר לכל אחד תחום אחריות ברור.'
+  },
+  {
+    q: 'איזה תפקיד חיוני כמעט בכל צוות האקתון מנצח?',
+    answers: ['מי שאחראי על הצגת הפתרון', 'מנהל תקציב', 'עורך לשוני', 'רכז לוגיסטיקה'],
+    correct: 0,
+    explain: 'פתרון מצוין שלא הוצג טוב מפסיד לפתרון סביר שהוצג מצוין.'
+  },
+  {
+    q: 'מה נכון לגבי ניהול הזמן בהאקתון?',
+    answers: ['לפתח עד הרגע האחרון', 'לוותר על שינה', 'לשריין זמן להכנת המצגת והדמו', 'להתחיל להציג בלי חזרה'],
+    correct: 2,
+    explain: 'כלל אצבע: לעצור את הפיתוח כשעתיים לפני ההגשה ולהתמקד בהצגה.'
+  },
+  {
+    q: 'מהי הדרך הטובה ביותר להתמודד עם באג שתקוע שעה?',
+    answers: ['להמשיך לבד עד שנפתר', 'לבקש עזרה ממנטור או מצוות אחר', 'לוותר על הפיצ׳ר בלי לבדוק', 'לשכתב את כל הפרויקט'],
+    correct: 1,
+    explain: 'מנטורים נמצאים בהאקתון בדיוק בשביל זה — שאלה בזמן חוסכת שעות.'
+  },
+  {
+    q: 'מה חשוב להראות בדמו של שלוש דקות?',
+    answers: ['את כל שורות הקוד', 'את תרשים הארכיטקטורה בלבד', 'רשימת טכנולוגיות', 'את הבעיה ואת הפתרון בפעולה'],
+    correct: 3,
+    explain: 'שופטים זוכרים סיפור קצר עם הדגמה חיה, לא רשימת כלים.'
+  },
+  {
+    q: 'מהו קריטריון שיפוט נפוץ בהאקתונים?',
+    answers: ['מספר הקומיטים', 'שעות העבודה שהושקעו', 'חדשנות והשפעה אפשרית', 'גודל הצוות'],
+    correct: 2,
+    explain: 'רוב חבר השופטים בוחן חדשנות, ישימות והשפעה — לא כמות עבודה.'
+  },
+  {
+    q: 'מה מומלץ להביא להאקתון?',
+    answers: ['מטען, אוזניות ובקבוק מים', 'מדפסת', 'מסך נוסף בגודל 32 אינץ׳', 'ספרי לימוד'],
+    correct: 0,
+    explain: 'ציוד אישי קטן שמאפשר לעבוד בנוחות לאורך זמן עושה את ההבדל.'
+  },
+  {
+    q: 'מה עושים עם הפרויקט אחרי שההאקתון נגמר?',
+    answers: ['מוחקים את המאגר', 'משתפים את הקוד והתובנות ומחליטים אם להמשיך', 'שוכחים ממנו', 'מחכים להאקתון הבא'],
+    correct: 1,
+    explain: 'לא מעט מוצרים אמיתיים התחילו כפרויקט האקתון שהמשיך אחרי סוף השבוע.'
+  }
+];
+
+/* ============================================================================
+   בלוק 2 — כלי עזר כלליים
+   ============================================================================ */
+
+/* קיצור נוח לבחירת אלמנט בודד לפי מזהה */
+function $(id) { return document.getElementById(id); }
+
+/* הגבלת ערך לטווח [min,max] — בשימוש במצלמה, בפיזיקה ובוולידציה */
+function clamp(v, min, max) { return v < min ? min : (v > max ? max : v); }
+
+/* מחולל מספרים פסאודו-אקראי עם seed (Mulberry32) — מבטיח שאותה עיר תיווצר בכל טעינה */
+function makeRng(seed) {
+  var s = seed >>> 0;                                   /* המרה למספר שלם ללא סימן */
+  return function () {                                  /* מחזיר פונקציה שכל קריאה שלה נותנת מספר ב-[0,1) */
+    s = (s + 0x6D2B79F5) >>> 0;                         /* קידום המצב הפנימי */
+    var t = s;                                          /* עותק מקומי לחישוב */
+    t = Math.imul(t ^ (t >>> 15), t | 1);               /* ערבול ביטים */
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);          /* ערבול נוסף לפיזור טוב */
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;       /* נרמול לטווח [0,1) */
+  };
+}
+
+/* בחירת איבר אקראי ממערך לפי מחולל נתון */
+function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
+
+/* עדכון טקסט של אלמנט בבטחה — textContent בלבד ולעולם לא innerHTML.
+   זהו קו ההגנה המרכזי מפני XSS: תוכן שאלות שהודבק מבחוץ מוצג כטקסט ולא מורץ. */
+function setText(el, text) { if (el) { el.textContent = text == null ? '' : String(text); } }
+
+/* ריקון בטוח של אלמנט לפני בנייה מחדש של תוכן דינמי */
+function clearEl(el) { while (el && el.firstChild) { el.removeChild(el.firstChild); } }
+
+/* עיצוב שניות לפורמט מ:שש לתצוגה במסך הסיום */
+function formatTime(sec) {
+  var m = Math.floor(sec / 60);                          /* מספר הדקות השלמות */
+  var s = Math.floor(sec % 60);                          /* השניות שנותרו */
+  return m + ':' + (s < 10 ? '0' : '') + s;              /* ריפוד אפס לשניות חד-ספרתיות */
+}
+
+/* קריאה בטוחה מ-localStorage — עטופה כי בגלישה פרטית הגישה עלולה לזרוק שגיאה */
+function storageGet(key) {
+  try { return window.localStorage.getItem(key); }
+  catch (e) { return null; }                             /* נכשל בשקט — המשחק ימשיך עם ברירות המחדל */
+}
+
+/* כתיבה בטוחה ל-localStorage; מחזירה true בהצלחה כדי שנוכל להודיע למשתמש */
+function storageSet(key, value) {
+  try { window.localStorage.setItem(key, value); return true; }
+  catch (e) { return false; }                            /* מכסה גם מצב של מכסת אחסון מלאה */
+}
+
+/* ============================================================================
+   בלוק 3 — מאגר השאלות: טעינה, ולידציה, שמירה, ייצוא וייבוא
+   ============================================================================ */
+
+/* מפתחות האחסון המקומי — עם סיומת גרסה כדי לאפשר שינוי מבנה בעתיד */
+var STORE_QUESTIONS = 'noizz26.questions.v1';            /* השאלות שנערכו בעורך */
+var STORE_BEST = 'noizz26.best.v1';                      /* השיא האישי */
+
+/* מגבלות אורך — מגן מפני קלט ענק שיתקע את הדפדפן או ישבור את הפריסה */
+var LIMIT_Q = 300;                                       /* אורך מרבי לנוסח שאלה */
+var LIMIT_A = 200;                                       /* אורך מרבי לתשובה */
+var LIMIT_E = 500;                                       /* אורך מרבי להסבר */
+var LIMIT_ANSWERS = 6;                                   /* מספר תשובות מרבי לשאלה */
+var LIMIT_QUESTIONS = 100;                               /* מספר שאלות מרבי במאגר */
+
+/* מערך השאלות הפעיל בזיכרון — מאותחל בהמשך מ-localStorage או מברירת המחדל */
+var questions = [];
+
+/* ולידציה וניקוי של מבנה שאלות מכל מקור (קובץ, טופס או ברירת מחדל).
+   הפונקציה לעולם לא סומכת על הקלט: בודקת טיפוסים, חותכת אורכים ומדלגת
+   על רשומות פגומות במקום לזרוק שגיאה על כל המאגר. */
+function validateQuestions(raw) {
+  if (!Array.isArray(raw)) { throw new Error('המבנה אינו מערך של שאלות'); }   /* חייב להיות מערך */
+  var out = [];                                                                /* אוסף הרשומות התקינות */
+  for (var i = 0; i < raw.length && out.length < LIMIT_QUESTIONS; i++) {       /* מעבר עם תקרה קשיחה */
+    var item = raw[i];                                                         /* הרשומה הנבדקת */
+    if (!item || typeof item !== 'object') { continue; }                       /* דילוג על ערכים שאינם אובייקט */
+    var q = typeof item.q === 'string' ? item.q.trim().slice(0, LIMIT_Q) : ''; /* נוסח השאלה, חתוך לאורך המותר */
+    if (!q) { continue; }                                                      /* שאלה ריקה — לא נכנסת */
+    if (!Array.isArray(item.answers)) { continue; }                            /* חייב מערך תשובות */
+    var answers = [];                                                          /* אוסף התשובות הנקיות */
+    for (var j = 0; j < item.answers.length && answers.length < LIMIT_ANSWERS; j++) { /* מעבר על התשובות */
+      var a = item.answers[j];                                                 /* התשובה הנוכחית */
+      if (typeof a !== 'string') { continue; }                                 /* רק מחרוזות */
+      a = a.trim().slice(0, LIMIT_A);                                          /* ניקוי רווחים וחיתוך אורך */
+      if (a) { answers.push(a); }                                              /* הוספה רק אם לא ריקה */
+    }
+    if (answers.length < 2) { continue; }                                      /* שאלה דורשת לפחות שתי תשובות */
+    var correct = parseInt(item.correct, 10);                                  /* אינדקס התשובה הנכונה */
+    if (!(correct >= 0 && correct < answers.length)) { continue; }             /* חייב להיות בטווח התשובות */
+    var explain = typeof item.explain === 'string' ? item.explain.trim().slice(0, LIMIT_E) : ''; /* הסבר רשות */
+    out.push({ q: q, answers: answers, correct: correct, explain: explain });  /* רשומה תקינה ומנורמלת */
+  }
+  if (out.length === 0) { throw new Error('לא נמצאה אף שאלה תקינה'); }         /* מאגר ריק אינו שמיש */
+  return out;                                                                  /* המאגר הנקי */
+}
+
+/* טעינת המאגר: קודם מה-localStorage (עריכות המשתמש), ואם אין — מברירת המחדל שבקובץ */
+function loadQuestions() {
+  var saved = storageGet(STORE_QUESTIONS);                                     /* ניסיון קריאה מהאחסון */
+  if (saved) {                                                                 /* אם קיים תוכן שמור */
+    try { return validateQuestions(JSON.parse(saved)); }                       /* פענוח וולידציה */
+    catch (e) { /* תוכן שמור פגום — מתעלמים ונופלים חזרה לברירת המחדל */ }
+  }
+  return validateQuestions(DEFAULT_QUESTIONS);                                 /* ברירת המחדל שבראש הקובץ */
+}
+
+/* שמירת המאגר הנוכחי ל-localStorage; מחזירה true אם הצליח */
+function saveQuestions() {
+  return storageSet(STORE_QUESTIONS, JSON.stringify(questions));               /* סריאליזציה ושמירה */
+}
+
+/* ============================================================================
+   בלוק 4 — יצירת העיר. הרשת נבנית פעם אחת עם seed קבוע, כך שהעיר זהה בכל טעינה.
+   ============================================================================ */
+
+/* קבועי הרשת: העולם הוא מטריצה של תאים בגודל אחיד */
+var GRID = 58;                     /* מספר התאים בכל ציר */
+var CELL = 48;                     /* גודל תא בפיקסלים */
+var BLOCK = 8;                     /* מחזור הרשת: 2 תאי כביש + 6 תאי מבנן */
+var WORLD = GRID * CELL;           /* גודל העולם בפיקסלים (2784) */
+var CITY_SEED = 260126;            /* ה-seed שקובע את מבנה העיר — שינוי שלו יוצר עיר אחרת */
+
+/* סוגי תאים — ערכים קטנים כדי לשמור אותם ב-Uint8Array חסכוני */
+var T_ROAD = 0;                    /* כביש */
+var T_WALK = 1;                    /* מדרכה */
+var T_BUILD = 2;                   /* בניין — התא היחיד שחוסם תנועה */
+var T_GRASS = 3;                   /* דשא / פארק */
+var T_PLAZA = 4;                   /* כיכר / חניון */
+
+/* מבני הנתונים של העולם, ממולאים ב-buildCity */
+var cells = null;                  /* Uint8Array בגודל GRID*GRID עם סוג כל תא */
+var buildings = [];                /* מלבני הבניינים לציור (בפיקסלים) */
+var props = [];                    /* עצים ופרטי נוי (בפיקסלים) */
+var lamps = [];                    /* פנסי רחוב בצמתים, לציור הילות אור */
+
+/* פלטת צבעי הבניינים — גוונים כהים בסגנון עיר לילה */
+var BUILDING_COLORS = ['#1d2440', '#232a4c', '#1a2b3e', '#2b2440', '#182338', '#26203a', '#1f3140'];
+
+/* המרת קואורדינטת תא לאינדקס במערך החד-ממדי */
+function cellIndex(cx, cy) { return cy * GRID + cx; }
+
+/* בדיקה אם תא הוא חלק מרצועת כביש (שני תאים בכל מחזור) */
+function isRoadCell(cx, cy) { return (cx % BLOCK) < 2 || (cy % BLOCK) < 2; }
+
+/* בדיקה אם תא חוסם תנועה — רק בניינים חוסמים; במדרכות ובפארק אפשר לנסוע */
+function isSolidCell(cx, cy) {
+  if (cx < 0 || cy < 0 || cx >= GRID || cy >= GRID) { return true; }  /* מחוץ למפה נחשב חסום */
+  return cells[cellIndex(cx, cy)] === T_BUILD;                        /* רק בניין חוסם */
+}
+
+/* בדיקת חסימה לפי קואורדינטות עולם בפיקסלים */
+function isSolidAt(x, y) {
+  return isSolidCell(Math.floor(x / CELL), Math.floor(y / CELL));     /* המרה מפיקסלים לתאים */
+}
+
+/* בניית העיר: מילוי מטריצת התאים ורשימות הציור */
+function buildCity() {
+  var rng = makeRng(CITY_SEED);                     /* מחולל אקראי דטרמיניסטי */
+  cells = new Uint8Array(GRID * GRID);              /* הקצאת מטריצת התאים */
+  buildings = [];                                   /* איפוס רשימת הבניינים */
+  props = [];                                       /* איפוס רשימת פרטי הנוי */
+  lamps = [];                                       /* איפוס רשימת הפנסים */
+
+  var cx, cy;                                       /* משתני לולאה על התאים */
+  for (cy = 0; cy < GRID; cy++) {                   /* מעבר על כל השורות */
+    for (cx = 0; cx < GRID; cx++) {                 /* מעבר על כל העמודות */
+      cells[cellIndex(cx, cy)] = isRoadCell(cx, cy) ? T_ROAD : T_WALK; /* כביש או מדרכה כברירת מחדל */
+    }
+  }
+
+  var blocks = Math.floor(GRID / BLOCK);            /* כמה מבננים שלמים נכנסים בכל ציר */
+  var bx, by;                                       /* אינדקסי המבנן */
+  for (by = 0; by < blocks; by++) {                 /* מעבר על שורות המבננים */
+    for (bx = 0; bx < blocks; bx++) {               /* מעבר על עמודות המבננים */
+      var x0 = bx * BLOCK + 2;                      /* תא ההתחלה של פנים המבנן בציר X */
+      var y0 = by * BLOCK + 2;                      /* תא ההתחלה של פנים המבנן בציר Y */
+      if (x0 + 5 >= GRID || y0 + 5 >= GRID) { continue; } /* מבנן חלקי בקצה המפה — מדלגים */
+      var roll = rng();                             /* הגרלת סוג המבנן */
+      if (roll < 0.74) { makeBuildingBlock(rng, x0, y0); }      /* מבנן בניינים */
+      else if (roll < 0.90) { makeParkBlock(rng, x0, y0); }     /* פארק */
+      else { makePlazaBlock(x0, y0); }                          /* כיכר / חניון */
+      lamps.push({ x: (bx * BLOCK + 1) * CELL, y: (by * BLOCK + 1) * CELL }); /* פנס בצומת שבפינת המבנן */
+    }
+  }
+}
+
+/* מבנן בניינים: טבעת מדרכה חיצונית ובתוכה גוש בנוי שמחולק לתת-מבנים */
+function makeBuildingBlock(rng, x0, y0) {
+  var ix = x0 + 1;                                  /* פינת הגוש הבנוי (טבעת מדרכה ברוחב תא אחד) */
+  var iy = y0 + 1;                                  /* אותו דבר בציר האנכי */
+  var size = 4;                                     /* הגוש הבנוי הוא 4x4 תאים */
+  var pattern = pick(rng, ['whole', 'h2', 'v2', 'quad', 'whole']); /* אופן חלוקת הגוש למבנים */
+  var parts = [];                                   /* תת-המלבנים שייווצרו */
+  if (pattern === 'whole') { parts.push([ix, iy, size, size]); }                       /* בניין אחד גדול */
+  else if (pattern === 'h2') { parts.push([ix, iy, size, 2], [ix, iy + 2, size, 2]); } /* שני בניינים זה מעל זה */
+  else if (pattern === 'v2') { parts.push([ix, iy, 2, size], [ix + 2, iy, 2, size]); } /* שני בניינים זה לצד זה */
+  else { parts.push([ix, iy, 2, 2], [ix + 2, iy, 2, 2], [ix, iy + 2, 2, 2], [ix + 2, iy + 2, 2, 2]); } /* ארבעה */
+
+  for (var p = 0; p < parts.length; p++) {          /* מעבר על תת-המבנים */
+    var r = parts[p];                               /* [cx, cy, רוחב בתאים, גובה בתאים] */
+    for (var y = r[1]; y < r[1] + r[3]; y++) {      /* סימון כל תאי המבנה כחסומים */
+      for (var x = r[0]; x < r[0] + r[2]; x++) {
+        cells[cellIndex(x, y)] = T_BUILD;           /* התא הופך לבניין */
+      }
+    }
+    buildings.push({                                /* רשומת ציור בפיקסלים */
+      x: r[0] * CELL, y: r[1] * CELL,               /* פינה שמאלית-עליונה */
+      w: r[2] * CELL, h: r[3] * CELL,               /* מידות */
+      color: pick(rng, BUILDING_COLORS),            /* צבע קירות */
+      lit: rng() < 0.55,                            /* האם לצייר חלונות מוארים */
+      seed: Math.floor(rng() * 100000)              /* seed לפרטי הגג והחלונות */
+    });
+  }
+}
+
+/* מבנן פארק: כל הפנים דשא, עם עצים פזורים כפרטי נוי (אינם חוסמים תנועה) */
+function makeParkBlock(rng, x0, y0) {
+  for (var y = y0; y < y0 + 6; y++) {               /* מעבר על פנים המבנן */
+    for (var x = x0; x < x0 + 6; x++) {
+      cells[cellIndex(x, y)] = T_GRASS;             /* סימון כדשא */
+    }
+  }
+  var count = 5 + Math.floor(rng() * 5);            /* בין 5 ל-9 עצים */
+  for (var i = 0; i < count; i++) {                 /* פיזור העצים בתוך המבנן */
+    props.push({
+      x: (x0 + rng() * 6) * CELL,                   /* מיקום אקראי בציר X בתוך המבנן */
+      y: (y0 + rng() * 6) * CELL,                   /* מיקום אקראי בציר Y */
+      r: 10 + rng() * 8                             /* רדיוס הצמרת */
+    });
+  }
+}
+
+/* מבנן כיכר/חניון: משטח סלול פתוח, שימושי כמרחב נסיעה ולנקודות איסוף */
+function makePlazaBlock(x0, y0) {
+  for (var y = y0; y < y0 + 6; y++) {               /* מעבר על פנים המבנן */
+    for (var x = x0; x < x0 + 6; x++) {
+      cells[cellIndex(x, y)] = T_PLAZA;             /* סימון ככיכר */
+    }
+  }
+}
+
+/* ============================================================================
+   בלוק 5 — ציור מוקדם של העיר. הרקע מצויר פעם אחת לקנבס מחוץ למסך,
+   ובכל פריים רק מעתיקים ממנו את החלון הנראה — במקום לצייר אלפי מלבנים.
+   ============================================================================ */
+
+var worldCanvas = null;            /* הקנבס שמחוץ למסך עם תמונת העיר */
+var miniCanvas = null;             /* קנבס מוקטן של העיר עבור המיני-מפה */
+
+/* ציור העיר כולה לקנבס מחוץ למסך */
+function renderWorldCanvas() {
+  var c = document.createElement('canvas');         /* יצירת קנבס לא מחובר ל-DOM */
+  c.width = WORLD;                                  /* רוחב בפיקסלים */
+  c.height = WORLD;                                 /* גובה בפיקסלים */
+  var g = c.getContext('2d');                       /* הקשר הציור */
+  var rng = makeRng(CITY_SEED + 7);                 /* מחולל נפרד לפרטי הציור */
+
+  g.fillStyle = '#12141f';                          /* צבע האספלט הבסיסי */
+  g.fillRect(0, 0, WORLD, WORLD);                   /* מילוי כל העולם */
+
+  var cx, cy, px, py, t;                            /* משתני עזר ללולאת התאים */
+  for (cy = 0; cy < GRID; cy++) {                   /* מעבר על שורות התאים */
+    for (cx = 0; cx < GRID; cx++) {                 /* מעבר על עמודות התאים */
+      t = cells[cellIndex(cx, cy)];                 /* סוג התא */
+      px = cx * CELL;                               /* מיקום התא בפיקסלים */
+      py = cy * CELL;
+      if (t === T_WALK) {                           /* מדרכה */
+        g.fillStyle = '#2a2f45';                    /* אפור-כחלחל */
+        g.fillRect(px, py, CELL, CELL);             /* מילוי התא */
+        g.strokeStyle = 'rgba(255,255,255,.05)';    /* קו הפרדה עדין בין אריחים */
+        g.strokeRect(px + .5, py + .5, CELL - 1, CELL - 1);
+      } else if (t === T_GRASS) {                   /* דשא */
+        g.fillStyle = rng() < 0.5 ? '#17381f' : '#153520'; /* שני גוונים לגיוון */
+        g.fillRect(px, py, CELL, CELL);
+      } else if (t === T_PLAZA) {                   /* כיכר / חניון */
+        g.fillStyle = '#1c1f30';
+        g.fillRect(px, py, CELL, CELL);
+        g.strokeStyle = 'rgba(255,210,63,.14)';     /* סימוני חניה בזהב עמום */
+        g.beginPath();
+        g.moveTo(px + CELL / 2, py + 8);            /* קו חניה אנכי קצר */
+        g.lineTo(px + CELL / 2, py + CELL - 8);
+        g.stroke();
+      }
+    }
+  }
+
+  drawRoadMarkings(g);                              /* סימוני נתיבים על הכבישים */
+
+  for (var i = 0; i < buildings.length; i++) {      /* ציור כל הבניינים מעל הרקע */
+    drawBuilding(g, buildings[i]);
+  }
+  for (var j = 0; j < props.length; j++) {          /* ציור העצים בפארקים */
+    drawTree(g, props[j]);
+  }
+  for (var k = 0; k < lamps.length; k++) {          /* הילות אור של פנסי הרחוב */
+    drawLamp(g, lamps[k]);
+  }
+
+  worldCanvas = c;                                  /* שמירת התוצאה לשימוש בלולאת הציור */
+  renderMiniCanvas();                               /* בניית הגרסה המוקטנת למיני-מפה */
+}
+
+/* ציור קו הפרדה מקווקו במרכז כל רצועת כביש, ללא הצמתים */
+function drawRoadMarkings(g) {
+  g.strokeStyle = 'rgba(255,255,255,.16)';          /* לבן שקוף למחצה */
+  g.lineWidth = 2;                                  /* עובי הקו */
+  g.setLineDash([14, 18]);                          /* תבנית מקווקו */
+  var bands = Math.ceil(GRID / BLOCK);              /* מספר רצועות הכביש בכל ציר */
+  var b, pos;                                       /* משתני לולאה */
+  for (b = 0; b < bands; b++) {                     /* מעבר על הרצועות */
+    pos = (b * BLOCK + 1) * CELL;                   /* מרכז הרצועה = הגבול בין שני תאי הכביש */
+    g.beginPath();
+    g.moveTo(pos, 0); g.lineTo(pos, WORLD);         /* קו אנכי לכל אורך המפה */
+    g.moveTo(0, pos); g.lineTo(WORLD, pos);         /* קו אופקי לכל רוחב המפה */
+    g.stroke();
+  }
+  g.setLineDash([]);                                /* ביטול המקווקו להמשך הציור */
+
+  g.fillStyle = '#12141f';                          /* צבע האספלט — לניקוי הצמתים */
+  for (b = 0; b < bands; b++) {                     /* מעבר על צמתים בציר האנכי */
+    for (var b2 = 0; b2 < bands; b2++) {            /* ובציר האופקי */
+      g.fillRect(b * BLOCK * CELL, b2 * BLOCK * CELL, CELL * 2, CELL * 2); /* מחיקת הקווים בצומת */
+    }
+  }
+}
+
+/* ציור בניין בודד עם אפקט תלת-ממד מדומה: צל, קירות, גג וחלונות */
+function drawBuilding(g, b) {
+  g.fillStyle = 'rgba(0,0,0,.45)';                  /* צל מוטל */
+  g.fillRect(b.x + 7, b.y + 7, b.w, b.h);           /* הצל מוסט מעט מהמבנה */
+
+  g.fillStyle = b.color;                            /* צבע הקירות */
+  g.fillRect(b.x, b.y, b.w, b.h);                   /* גוף הבניין */
+
+  var inset = 7;                                    /* מרחק הגג מקצה הקירות (יוצר תחושת גובה) */
+  g.fillStyle = shade(b.color, 22);                 /* הגג בהיר מעט מהקירות */
+  g.fillRect(b.x + inset, b.y + inset, b.w - inset * 2, b.h - inset * 2);
+
+  g.strokeStyle = 'rgba(0,0,0,.5)';                 /* קו מתאר כהה להפרדה מהרקע */
+  g.lineWidth = 1;
+  g.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1);
+
+  var rng = makeRng(b.seed);                        /* מחולל ייעודי לפרטי הגג */
+  g.fillStyle = shade(b.color, -14);                /* מתקני גג כהים */
+  var units = 1 + Math.floor(rng() * 3);            /* בין מתקן אחד לשלושה */
+  for (var i = 0; i < units; i++) {                 /* ציור מתקני הגג */
+    var uw = 14 + rng() * 22;                       /* רוחב המתקן */
+    var uh = 12 + rng() * 20;                       /* גובה המתקן */
+    var ux = b.x + inset + 6 + rng() * Math.max(1, b.w - inset * 2 - uw - 12); /* מיקום בתוך הגג */
+    var uy = b.y + inset + 6 + rng() * Math.max(1, b.h - inset * 2 - uh - 12);
+    g.fillRect(ux, uy, uw, uh);                     /* המתקן עצמו */
+  }
+
+  if (b.lit) {                                      /* בניינים חלקם עם חלונות מוארים */
+    g.fillStyle = 'rgba(255,210,63,.5)';            /* אור צהבהב חמים */
+    for (var w = 0; w < 8; w++) {                   /* שמונה חלונות אקראיים על הטבעת החיצונית */
+      var side = Math.floor(rng() * 4);             /* באיזה צד של הבניין */
+      var t = rng();                                /* מיקום יחסי לאורך הצד */
+      var wx = side === 0 ? b.x + 2 : side === 1 ? b.x + b.w - 6 : b.x + 4 + t * (b.w - 12);
+      var wy = side === 0 || side === 1 ? b.y + 4 + t * (b.h - 12) : (side === 2 ? b.y + 2 : b.y + b.h - 6);
+      g.fillRect(wx, wy, 4, 4);                     /* ריבוע קטן שמדמה חלון */
+    }
+  }
+}
+
+/* ציור עץ בפארק — צל, צמרת וגוון בהיר בחלק העליון */
+function drawTree(g, p) {
+  g.fillStyle = 'rgba(0,0,0,.4)';                   /* צל העץ */
+  g.beginPath(); g.arc(p.x + 4, p.y + 5, p.r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#1f5c30';                          /* ירוק כהה — גוף הצמרת */
+  g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#2c7a3f';                          /* ירוק בהיר — הארה מלמעלה */
+  g.beginPath(); g.arc(p.x - p.r * .25, p.y - p.r * .25, p.r * .55, 0, Math.PI * 2); g.fill();
+}
+
+/* ציור הילת פנס רחוב בצומת — מוסיף עומק לתחושת הלילה */
+function drawLamp(g, l) {
+  var grad = g.createRadialGradient(l.x, l.y, 2, l.x, l.y, 70); /* מעבר צבע רדיאלי */
+  grad.addColorStop(0, 'rgba(255,225,150,.16)');    /* מרכז ההילה */
+  grad.addColorStop(1, 'rgba(255,225,150,0)');      /* דעיכה לשקיפות מלאה */
+  g.fillStyle = grad;
+  g.beginPath(); g.arc(l.x, l.y, 70, 0, Math.PI * 2); g.fill();
+}
+
+/* הבהרה או הכהיה של צבע הקסדצימלי בכמות נתונה — לגוני גג וצל */
+function shade(hex, amount) {
+  var n = parseInt(hex.slice(1), 16);                            /* פענוח הצבע למספר */
+  var r = clamp(((n >> 16) & 255) + amount, 0, 255);              /* ערוץ אדום מוגבל לטווח */
+  var gg = clamp(((n >> 8) & 255) + amount, 0, 255);              /* ערוץ ירוק */
+  var b = clamp((n & 255) + amount, 0, 255);                      /* ערוץ כחול */
+  return 'rgb(' + r + ',' + gg + ',' + b + ')';                   /* החזרה כמחרוזת rgb */
+}
+
+/* בניית תמונת המיני-מפה: העיר כולה מוקטנת לקנבס קטן */
+function renderMiniCanvas() {
+  var size = 132;                                   /* גודל המיני-מפה בפיקסלים */
+  var c = document.createElement('canvas');         /* קנבס מחוץ למסך */
+  c.width = size; c.height = size;
+  var g = c.getContext('2d');
+  var s = size / WORLD;                             /* יחס ההקטנה */
+  g.fillStyle = '#0b0d16';                          /* רקע כהה = מבננים */
+  g.fillRect(0, 0, size, size);
+  g.fillStyle = '#39405e';                          /* צבע הכבישים במיני-מפה */
+  var bands = Math.ceil(GRID / BLOCK);              /* מספר רצועות הכביש */
+  for (var b = 0; b < bands; b++) {                 /* ציור הרצועות כפסים */
+    var pos = b * BLOCK * CELL * s;                 /* מיקום הרצועה בקנה המידה הקטן */
+    var thick = Math.max(1, 2 * CELL * s);          /* עובי הרצועה, לפחות פיקסל אחד */
+    g.fillRect(pos, 0, thick, size);                /* פס אנכי */
+    g.fillRect(0, pos, size, thick);                /* פס אופקי */
+  }
+  miniCanvas = c;                                   /* שמירה לשימוש בלולאת הציור */
+}
+
+/* ============================================================================
+   בלוק 6 — ישויות המשחק: הרכב, הדמות ברגל, וסימני האיסוף
+   ============================================================================ */
+
+/* קבועי פיזיקה — כל הערכים בפיקסלים לשנייה, כדי שהתנועה תהיה עקבית בכל קצב פריימים */
+var CAR_ACCEL = 560;               /* תאוצה בלחיצה על גז */
+var CAR_MAX = 430;                 /* מהירות מרבית קדימה */
+var CAR_MAX_REV = 170;             /* מהירות מרבית לאחור */
+var CAR_BRAKE = 900;               /* עוצמת בלימה */
+var CAR_DRAG = 1.5;                /* התנגדות טבעית שמאטה את הרכב כשלא לוחצים גז */
+var CAR_TURN = 2.7;                /* קצב סיבוב מרבי ברדיאנים לשנייה */
+var CAR_R = 14;                    /* רדיוס ההתנגשות של הרכב */
+var WALK_SPEED = 165;              /* מהירות הליכה */
+var WALK_R = 9;                    /* רדיוס ההתנגשות של הדמות */
+var PICK_R_CAR = 36;               /* רדיוס איסוף סימן ברכב */
+var PICK_R_FOOT = 28;              /* רדיוס איסוף סימן ברגל */
+var ENTER_R = 52;                  /* מרחק מרבי לכניסה חזרה לרכב */
+
+/* מצב הרכב בעולם */
+var car = { x: 0, y: 0, angle: 0, speed: 0 };
+/* מצב הדמות כשיוצאים מהרכב */
+var walker = { x: 0, y: 0, angle: 0 };
+/* האם השחקן נמצא כרגע ברכב */
+var inCar = true;
+/* רשימת סימני השאלה הפזורים במפה */
+var marks = [];
+
+/* מצב המשחק הכולל — כל מה שמתאפס במשחק חדש */
+var state = {
+  mode: 'start',                   /* 'start' | 'play' | 'quiz' | 'pause' | 'end' | 'editor' */
+  score: 0,                        /* ניקוד מצטבר */
+  correct: 0,                      /* מספר תשובות נכונות */
+  collected: 0,                    /* מספר סימנים שנאספו */
+  startedAt: 0,                    /* חותמת זמן תחילת המשחק */
+  elapsed: 0,                      /* משך המשחק בשניות */
+  results: [],                     /* תיעוד התשובות לסיכום בסוף */
+  activeMark: null,                /* הסימן שנאסף כרגע ומחכה למענה */
+  muted: false                     /* האם השמע מושתק */
+};
+
+/* החזרת מרכז הצומת של רצועת כביש מספר b — משמש לנקודת הפתיחה */
+function bandCenter(b) { return (b * BLOCK + 1) * CELL; }
+
+/* פיזור סימני השאלה במפה: על כבישים, כיכרות ופארקים, במרחק סביר זה מזה */
+function placeMarks(count) {
+  var rng = makeRng(Math.floor(Math.random() * 2147483647));  /* seed אקראי — פיזור שונה בכל משחק */
+  var candidates = [];                                        /* תאים אפשריים לאיסוף */
+  for (var cy = 2; cy < GRID - 2; cy += 2) {                  /* דגימה כל תא שני כדי לחסוך זיכרון */
+    for (var cx = 2; cx < GRID - 2; cx += 2) {
+      var t = cells[cellIndex(cx, cy)];                       /* סוג התא */
+      if (t === T_ROAD || t === T_PLAZA || t === T_GRASS) {   /* רק שטח פתוח שאפשר להגיע אליו */
+        candidates.push({ x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2 }); /* מרכז התא בפיקסלים */
+      }
+    }
+  }
+  for (var i = candidates.length - 1; i > 0; i--) {           /* ערבוב פישר-ייטס לפי המחולל */
+    var j = Math.floor(rng() * (i + 1));                      /* אינדקס אקראי בטווח */
+    var tmp = candidates[i]; candidates[i] = candidates[j]; candidates[j] = tmp; /* החלפה */
+  }
+
+  marks = [];                                                 /* איפוס הרשימה */
+  var minDist = CELL * 9;                                     /* מרחק מזערי בין שני סימנים */
+  for (var k = 0; k < candidates.length && marks.length < count; k++) { /* בחירה חמדנית */
+    var c = candidates[k];                                    /* המועמד הנוכחי */
+    if (Math.hypot(c.x - car.x, c.y - car.y) < CELL * 5) { continue; } /* לא צמוד לנקודת הפתיחה */
+    var ok = true;                                            /* האם המועמד רחוק מספיק מכל הסימנים שכבר נבחרו */
+    for (var m = 0; m < marks.length; m++) {
+      if (Math.hypot(c.x - marks[m].x, c.y - marks[m].y) < minDist) { ok = false; break; }
+    }
+    if (ok) { marks.push({ x: c.x, y: c.y, qIndex: marks.length, taken: false }); } /* הוספת סימן */
+  }
+  /* אם המפה צפופה מדי ולא נמצאו מספיק מיקומים במרחק המלא — משלימים בלי מגבלת המרחק */
+  for (var n = 0; n < candidates.length && marks.length < count; n++) {
+    var c2 = candidates[n];                                   /* מועמד להשלמה */
+    var dup = false;                                          /* בדיקה שאינו כפול */
+    for (var d = 0; d < marks.length; d++) {
+      if (marks[d].x === c2.x && marks[d].y === c2.y) { dup = true; break; }
+    }
+    if (!dup) { marks.push({ x: c2.x, y: c2.y, qIndex: marks.length, taken: false }); }
+  }
+}
+
+/* ערבוב סדר השאלות כדי שכל משחק ירגיש שונה, והצמדתן לסימנים */
+function assignQuestions() {
+  var order = [];                                             /* מערך אינדקסים 0..n-1 */
+  for (var i = 0; i < questions.length; i++) { order.push(i); }
+  for (var j = order.length - 1; j > 0; j--) {                /* ערבוב פישר-ייטס */
+    var r = Math.floor(Math.random() * (j + 1));              /* כאן אקראיות אמיתית מספיקה */
+    var t = order[j]; order[j] = order[r]; order[r] = t;
+  }
+  for (var m = 0; m < marks.length; m++) {                    /* הצמדת שאלה לכל סימן */
+    marks[m].qIndex = order[m % order.length];                /* מודולו למקרה שיש יותר סימנים משאלות */
+  }
+}
+
+/* ============================================================================
+   בלוק 7 — קלט: מקלדת וכפתורי מגע
+   ============================================================================ */
+
+/* מצב המקשים הלוגי — נפרד מהמקש הפיזי כדי שמגע ומקלדת יזינו את אותו מבנה */
+var keys = { up: false, down: false, left: false, right: false };
+
+/* מיפוי קוד מקש פיזי (בלתי תלוי בפריסת המקלדת, כך שגם עברית עובדת) לפעולה */
+var KEYMAP = {
+  ArrowUp: 'up', KeyW: 'up',
+  ArrowDown: 'down', KeyS: 'down',
+  ArrowLeft: 'left', KeyA: 'left',
+  ArrowRight: 'right', KeyD: 'right'
+};
+
+/* בדיקה אם הפוקוס נמצא בשדה קלט — אז המקשים שייכים להקלדה ולא למשחק */
+function isTypingTarget(e) {
+  var tag = e.target && e.target.tagName ? e.target.tagName.toUpperCase() : ''; /* שם התגית של מקור האירוע */
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';             /* שדות שבהם המקלדת חופשית */
+}
+
+/* טיפול בלחיצת מקש */
+function onKeyDown(e) {
+  if (isTypingTarget(e)) { return; }                          /* בעורך השאלות המקלדת משמשת להקלדה בלבד */
+  if (state.mode === 'quiz') { handleQuizKey(e); return; }    /* במודאל השאלה יש מיפוי משלו */
+  var action = KEYMAP[e.code];                                /* האם זהו מקש תנועה */
+  if (action) { keys[action] = true; e.preventDefault(); return; } /* מניעת גלילת הדף בחצים */
+  if (e.code === 'KeyE') { toggleVehicle(); e.preventDefault(); return; } /* כניסה/יציאה מהרכב */
+  if (e.code === 'KeyM') { toggleSound(); return; }           /* השתקה */
+  if (e.code === 'Escape') {                                  /* השהיה או חזרה ממנה */
+    if (state.mode === 'play') { pauseGame(); }
+    else if (state.mode === 'pause') { resumeGame(); }
+  }
+}
+
+/* טיפול בשחרור מקש תנועה */
+function onKeyUp(e) {
+  if (isTypingTarget(e)) { return; }                          /* התעלמות משחרור מקש בתוך שדה קלט */
+  var action = KEYMAP[e.code];                                /* זיהוי הפעולה */
+  if (action) { keys[action] = false; e.preventDefault(); }    /* כיבוי הדגל */
+}
+
+/* חיווט כפתורי המגע: כל כפתור מדליק ומכבה את אותו דגל שהמקלדת משתמשת בו */
+function wireTouchControls() {
+  var btns = document.querySelectorAll('.tbtn');              /* כל כפתורי המגע */
+  for (var i = 0; i < btns.length; i++) {                     /* מעבר על הכפתורים */
+    (function (btn) {                                         /* סגירה כדי לשמר את ההפניה לכפתור */
+      var key = btn.getAttribute('data-key');                 /* הפעולה שהכפתור מייצג */
+      var down = function (ev) {                              /* התחלת לחיצה */
+        ev.preventDefault();                                  /* מניעת זום כפול והדגשת טקסט */
+        if (key === 'use') { toggleVehicle(); return; }       /* כפתור הפעולה פועל מיד */
+        keys[key] = true;                                     /* הדלקת דגל התנועה */
+        btn.classList.add('on');                              /* משוב ויזואלי */
+      };
+      var up = function (ev) {                                /* סיום לחיצה */
+        ev.preventDefault();
+        if (key !== 'use') { keys[key] = false; }             /* כיבוי דגל התנועה */
+        btn.classList.remove('on');                           /* הסרת המשוב */
+      };
+      btn.addEventListener('pointerdown', down);              /* pointer מכסה מגע, עכבר ועט */
+      btn.addEventListener('pointerup', up);
+      btn.addEventListener('pointercancel', up);              /* גם אם המערכת ביטלה את המגע */
+      btn.addEventListener('pointerleave', up);               /* אם האצבע יצאה מהכפתור */
+    })(btns[i]);
+  }
+}
+
+/* ============================================================================
+   בלוק 8 — עדכון פיזיקה ומצב בכל פריים
+   ============================================================================ */
+
+/* בדיקה אם עיגול ברדיוס r סביב הנקודה מתנגש בבניין */
+function blocked(x, y, r) {
+  return isSolidAt(x - r, y - r) || isSolidAt(x + r, y - r) ||  /* שתי הפינות העליונות */
+         isSolidAt(x - r, y + r) || isSolidAt(x + r, y + r) ||  /* שתי הפינות התחתונות */
+         isSolidAt(x, y);                                       /* והמרכז, לגופים קטנים מתא */
+}
+
+/* עדכון הרכב: תאוצה, היגוי, חיכוך והתנגשות */
+function updateCar(dt) {
+  if (keys.up) { car.speed += CAR_ACCEL * dt; }                          /* גז קדימה */
+  else if (keys.down) {                                                  /* בלימה או נסיעה לאחור */
+    car.speed -= (car.speed > 0 ? CAR_BRAKE : CAR_ACCEL * 0.6) * dt;     /* בולמים חזק, מאיצים לאחור חלש */
+  } else {                                                               /* ללא קלט — חיכוך בלבד */
+    car.speed -= car.speed * CAR_DRAG * dt;                              /* התנגדות פרופורציונלית למהירות */
+    if (Math.abs(car.speed) < 4) { car.speed = 0; }                      /* עצירה מלאה במהירות זניחה */
+  }
+  car.speed = clamp(car.speed, -CAR_MAX_REV, CAR_MAX);                   /* הגבלה למהירויות המרביות */
+
+  var grip = clamp(Math.abs(car.speed) / 140, 0, 1);                     /* רכב עומד לא מסתובב */
+  var dir = car.speed >= 0 ? 1 : -1;                                     /* בנסיעה לאחור ההיגוי מתהפך */
+  if (keys.left) { car.angle -= CAR_TURN * grip * dir * dt; }            /* פנייה שמאלה */
+  if (keys.right) { car.angle += CAR_TURN * grip * dir * dt; }           /* פנייה ימינה */
+
+  var nx = car.x + Math.cos(car.angle) * car.speed * dt;                 /* מיקום מוצע בציר X */
+  var ny = car.y + Math.sin(car.angle) * car.speed * dt;                 /* מיקום מוצע בציר Y */
+  moveEntity(car, nx, ny, CAR_R, true);                                  /* הזזה עם בדיקת התנגשות */
+}
+
+/* עדכון הדמות ברגל: תנועה בשמונה כיוונים במהירות קבועה */
+function updateWalker(dt) {
+  var dx = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);                   /* רכיב תנועה אופקי */
+  var dy = (keys.down ? 1 : 0) - (keys.up ? 1 : 0);                      /* רכיב תנועה אנכי */
+  if (dx === 0 && dy === 0) { return; }                                  /* אין קלט — אין תנועה */
+  var len = Math.hypot(dx, dy);                                          /* נרמול כדי שאלכסון לא יהיה מהיר יותר */
+  dx /= len; dy /= len;
+  walker.angle = Math.atan2(dy, dx);                                     /* הדמות פונה לכיוון ההליכה */
+  moveEntity(walker, walker.x + dx * WALK_SPEED * dt, walker.y + dy * WALK_SPEED * dt, WALK_R, false);
+}
+
+/* הזזת ישות עם הפרדת צירים: אם ציר אחד חסום, התנועה בציר השני עדיין מתאפשרת
+   (זה מה שמונע "הידבקות" לקירות ומאפשר להחליק לאורך בניין) */
+function moveEntity(ent, nx, ny, r, isCar) {
+  var margin = r + 2;                                                    /* שוליים כדי לא לצאת מגבולות העולם */
+  nx = clamp(nx, margin, WORLD - margin);                                /* הגבלה לגבולות המפה */
+  ny = clamp(ny, margin, WORLD - margin);
+  if (!blocked(nx, ent.y, r)) { ent.x = nx; }                            /* ניסיון תנועה בציר X */
+  else if (isCar) { car.speed *= -0.25; }                                /* פגיעה — הרכב נהדף אחורה מעט */
+  if (!blocked(ent.x, ny, r)) { ent.y = ny; }                            /* ניסיון תנועה בציר Y */
+  else if (isCar) { car.speed *= -0.25; }
+}
+
+/* כניסה או יציאה מהרכב, לפי המצב הנוכחי והמרחק */
+function toggleVehicle() {
+  if (state.mode !== 'play') { return; }                                 /* רק בזמן משחק פעיל */
+  if (inCar) {                                                           /* יציאה מהרכב */
+    var side = car.angle + Math.PI / 2;                                  /* יוצאים לצד הרכב */
+    var ox = car.x + Math.cos(side) * 26;                                /* מיקום היציאה */
+    var oy = car.y + Math.sin(side) * 26;
+    if (blocked(ox, oy, WALK_R)) { ox = car.x; oy = car.y; }             /* אם הצד חסום — יוצאים במקום הרכב */
+    walker.x = ox; walker.y = oy; walker.angle = car.angle;              /* מיקום הדמות */
+    car.speed = 0;                                                       /* הרכב נעצר */
+    inCar = false;                                                       /* מעבר למצב הליכה */
+    beep(300, 0.07);                                                     /* צליל קצר */
+  } else {                                                               /* כניסה לרכב */
+    if (Math.hypot(walker.x - car.x, walker.y - car.y) > ENTER_R) {      /* רחוק מדי מהרכב */
+      showToast('הרכב רחוק מדי');                                        /* הסבר קצר לשחקן */
+      return;
+    }
+    inCar = true;                                                        /* חזרה לנהיגה */
+    beep(420, 0.07);
+  }
+  updateHint();                                                          /* עדכון שורת הרמז */
+}
+
+/* בדיקת איסוף: אם השחקן נמצא בטווח סימן פתוח — הסימן נאסף והשאלה נפתחת */
+function checkPickups() {
+  var p = inCar ? car : walker;                                          /* הישות הפעילה */
+  var r = inCar ? PICK_R_CAR : PICK_R_FOOT;                              /* רדיוס האיסוף המתאים */
+  for (var i = 0; i < marks.length; i++) {                               /* מעבר על כל הסימנים */
+    var m = marks[i];                                                    /* הסימן הנוכחי */
+    if (m.taken) { continue; }                                           /* סימן שכבר נאסף */
+    if (Math.hypot(p.x - m.x, p.y - m.y) < r) {                          /* בדיקת מרחק */
+      m.taken = true;                                                    /* סימון כנאסף */
+      state.collected++;                                                 /* עדכון המונה */
+      updateHud();                                                       /* רענון תצוגת הנתונים */
+      beep(880, 0.09);                                                   /* צליל איסוף */
+      openQuestion(m);                                                   /* פתיחת מודאל השאלה */
+      return;                                                            /* סימן אחד בכל פריים */
+    }
+  }
+}
+
+/* עדכון כללי לפריים אחד */
+function update(dt) {
+  if (inCar) { updateCar(dt); } else { updateWalker(dt); }               /* פיזיקה לפי המצב */
+  checkPickups();                                                        /* בדיקת איסוף */
+  state.elapsed = (performance.now() - state.startedAt) / 1000;          /* עדכון שעון המשחק */
+}
+
+/* ============================================================================
+   בלוק 9 — ציור הפריים: מצלמה, ישויות, מיני-מפה ואפקטים
+   ============================================================================ */
+
+var canvas = null;                 /* אלמנט הקנבס הראשי */
+var ctx = null;                    /* הקשר הציור הראשי */
+var viewW = 0, viewH = 0;          /* מידות התצוגה בפיקסלי CSS */
+var dpr = 1;                       /* יחס פיקסלים של המסך (מוגבל ל-2 לשמירת ביצועים) */
+var vignette = null;               /* מעבר צבע מוכן מראש להכהיית שולי המסך */
+var miniCtx = null;                /* הקשר הציור של המיני-מפה */
+
+/* התאמת גודל הקנבס לחלון, כולל תמיכה במסכי Retina */
+function resizeCanvas() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);            /* תקרה של 2 — מעבר לזה רק עולה בביצועים */
+  viewW = canvas.clientWidth;                                 /* רוחב התצוגה ביחידות CSS */
+  viewH = canvas.clientHeight;                                /* גובה התצוגה */
+  canvas.width = Math.max(1, Math.round(viewW * dpr));        /* רוחב מאגר הפיקסלים בפועל */
+  canvas.height = Math.max(1, Math.round(viewH * dpr));       /* גובה מאגר הפיקסלים */
+  buildVignette();                                            /* בניית ההצללה מחדש למידות החדשות */
+}
+
+/* בניית שכבת ההצללה ההיקפית פעם אחת לכל שינוי גודל, במקום בכל פריים */
+function buildVignette() {
+  if (!ctx || viewW === 0 || viewH === 0) { return; }         /* אין מה לבנות לפני שיש מידות */
+  var g = ctx.createRadialGradient(                           /* מעבר רדיאלי ממרכז המסך החוצה */
+    viewW / 2, viewH / 2, Math.min(viewW, viewH) * 0.35,      /* המעגל הפנימי — שקוף */
+    viewW / 2, viewH / 2, Math.max(viewW, viewH) * 0.78       /* המעגל החיצוני — כהה */
+  );
+  g.addColorStop(0, 'rgba(0,0,0,0)');                         /* מרכז ללא הכהיה */
+  g.addColorStop(1, 'rgba(0,0,0,.55)');                       /* שוליים כהים */
+  vignette = g;                                               /* שמירה לשימוש חוזר */
+}
+
+/* ציור הפריים המלא */
+function render(t) {
+  if (!worldCanvas) { return; }                               /* אין עדיין עולם מצויר */
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);                     /* איפוס הטרנספורם והתאמה ל-DPR */
+  ctx.clearRect(0, 0, viewW, viewH);                          /* ניקוי הפריים הקודם */
+
+  var p = inCar ? car : walker;                               /* הישות שהמצלמה עוקבת אחריה */
+  var sw = Math.min(viewW, WORLD);                            /* רוחב החלון הנראה מתוך העולם */
+  var sh = Math.min(viewH, WORLD);                            /* גובהו */
+  var camX = clamp(p.x - viewW / 2, 0, WORLD - sw);           /* מיקום המצלמה, מוגבל לגבולות העולם */
+  var camY = clamp(p.y - viewH / 2, 0, WORLD - sh);
+  var offX = viewW > WORLD ? (viewW - WORLD) / 2 : 0;         /* מרכוז אם החלון גדול מהעולם */
+  var offY = viewH > WORLD ? (viewH - WORLD) / 2 : 0;
+
+  ctx.save();                                                 /* שמירת מצב לפני מעבר לקואורדינטות עולם */
+  ctx.translate(offX - camX, offY - camY);                    /* הזזת מערכת הצירים למיקום המצלמה */
+  ctx.drawImage(worldCanvas, camX, camY, sw, sh, camX, camY, sw, sh); /* העתקת החלון הנראה בלבד */
+
+  for (var i = 0; i < marks.length; i++) {                    /* ציור סימני השאלה שלא נאספו */
+    if (!marks[i].taken) { drawMark(marks[i], t); }
+  }
+  drawCar();                                                  /* הרכב מצויר תמיד — גם כשיצאנו ממנו */
+  if (!inCar) { drawWalker(); }                               /* הדמות מצוירת רק כשהיא בחוץ */
+  drawCompass(p, t);                                          /* חץ שמצביע לסימן הקרוב */
+  ctx.restore();                                              /* חזרה לקואורדינטות מסך */
+
+  if (vignette) { ctx.fillStyle = vignette; ctx.fillRect(0, 0, viewW, viewH); } /* הצללה היקפית */
+  drawMinimap(p);                                             /* עדכון המיני-מפה */
+}
+
+/* ציור סימן שאלה זוהר ומסתובב */
+function drawMark(m, t) {
+  var pulse = 1 + Math.sin(t / 260) * 0.12;                   /* פעימה קלה לגודל */
+  var glow = ctx.createRadialGradient(m.x, m.y, 2, m.x, m.y, 34); /* הילה סביב הסימן */
+  glow.addColorStop(0, 'rgba(255,210,63,.42)');               /* מרכז זהוב */
+  glow.addColorStop(1, 'rgba(255,210,63,0)');                 /* דעיכה */
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(m.x, m.y, 34, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();                                                 /* שמירה לפני סיבוב */
+  ctx.translate(m.x, m.y);                                    /* מעבר למרכז הסימן */
+  ctx.rotate(t / 620);                                        /* סיבוב איטי סביב הציר */
+  ctx.scale(pulse, pulse);                                    /* החלת הפעימה */
+  ctx.fillStyle = 'rgba(255,210,63,.92)';                     /* צבע המעוין */
+  ctx.beginPath();
+  ctx.moveTo(0, -17); ctx.lineTo(14, 0); ctx.lineTo(0, 17); ctx.lineTo(-14, 0); /* מעוין */
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.8)';                   /* קו מתאר בהיר */
+  ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.restore();                                              /* ביטול הסיבוב לפני ציור הטקסט */
+
+  ctx.fillStyle = '#3a2a00';                                  /* סימן השאלה נשאר זקוף וקריא */
+  ctx.font = '800 17px ' + FONT_STACK;                        /* גופן מודגש */
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';      /* מרכוז מדויק */
+  ctx.fillText('?', m.x, m.y + 1);                            /* ציור התו */
+}
+
+/* ציור הרכב: צל, גוף, שמשה, פנסים */
+function drawCar() {
+  ctx.save();                                                 /* שמירת מצב לפני סיבוב לפי כיוון הנסיעה */
+  ctx.translate(car.x, car.y);                                /* מעבר למרכז הרכב */
+  ctx.rotate(car.angle);                                      /* סיבוב לפי זווית הנסיעה */
+
+  ctx.fillStyle = 'rgba(0,0,0,.45)';                          /* צל מתחת לרכב */
+  roundRect(ctx, -19, -11, 40, 23, 5); ctx.fill();
+
+  ctx.fillStyle = '#e94b5a';                                  /* גוף הרכב באדום בולט */
+  roundRect(ctx, -21, -13, 42, 26, 6); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1.5; ctx.stroke(); /* מתאר */
+
+  ctx.fillStyle = '#2a3350';                                  /* שמשה קדמית כהה */
+  roundRect(ctx, 2, -10, 11, 20, 3); ctx.fill();
+  ctx.fillStyle = '#3b466b';                                  /* גג/שמשה אחורית */
+  roundRect(ctx, -13, -9, 11, 18, 3); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,240,190,.95)';                    /* פנסים קדמיים */
+  ctx.fillRect(19, -10, 3, 5); ctx.fillRect(19, 5, 3, 5);
+  ctx.restore();                                              /* חזרה לקואורדינטות עולם */
+}
+
+/* ציור הדמות ברגל: צל, גוף ומבט לכיוון ההליכה */
+function drawWalker() {
+  ctx.save();
+  ctx.translate(walker.x, walker.y);                          /* מעבר למיקום הדמות */
+  ctx.rotate(walker.angle);                                   /* פנייה לכיוון התנועה */
+  ctx.fillStyle = 'rgba(0,0,0,.45)';                          /* צל */
+  ctx.beginPath(); ctx.arc(2, 2, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#22e3ff';                                  /* גוף בצבע המותג */
+  ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0b1c2a';                                  /* סימון קדמת הדמות */
+  ctx.beginPath(); ctx.arc(4, 0, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+/* חץ מנווט: מצביע מהשחקן אל הסימן הקרוב ביותר, רק כשהוא רחוק מהמסך */
+function drawCompass(p, t) {
+  var best = null, bestD = Infinity;                          /* הסימן הקרוב ביותר והמרחק אליו */
+  for (var i = 0; i < marks.length; i++) {                    /* חיפוש המינימום */
+    if (marks[i].taken) { continue; }                         /* מדלגים על סימנים שנאספו */
+    var d = Math.hypot(marks[i].x - p.x, marks[i].y - p.y);   /* מרחק אווירי */
+    if (d < bestD) { bestD = d; best = marks[i]; }            /* עדכון המועמד */
+  }
+  if (!best || bestD < 220) { return; }                       /* קרוב מספיק — אין צורך בחץ */
+  var a = Math.atan2(best.y - p.y, best.x - p.x);             /* הזווית אל הסימן */
+  var r = 52 + Math.sin(t / 300) * 3;                         /* מרחק החץ מהשחקן, עם פעימה */
+  ctx.save();
+  ctx.translate(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r); /* מיקום החץ סביב השחקן */
+  ctx.rotate(a);                                              /* כיוון החץ */
+  ctx.fillStyle = 'rgba(255,210,63,.9)';                      /* זהב כמו הסימנים */
+  ctx.beginPath();
+  ctx.moveTo(9, 0); ctx.lineTo(-6, -7); ctx.lineTo(-6, 7);    /* משולש */
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+/* ציור המיני-מפה: תמונת העיר המוקטנת + הסימנים + מיקום השחקן */
+function drawMinimap(p) {
+  if (!miniCtx || !miniCanvas) { return; }                    /* אין מיני-מפה — יוצאים */
+  var size = miniCtx.canvas.width;                            /* מידות אלמנט המיני-מפה */
+  var s = size / WORLD;                                       /* יחס ההקטנה מהעולם */
+  miniCtx.clearRect(0, 0, size, size);                        /* ניקוי הפריים הקודם */
+  miniCtx.drawImage(miniCanvas, 0, 0, size, size);            /* רקע העיר המוקטן */
+  miniCtx.fillStyle = '#ffd23f';                              /* סימנים בזהב */
+  for (var i = 0; i < marks.length; i++) {                    /* ציור הסימנים שנותרו */
+    if (marks[i].taken) { continue; }
+    miniCtx.fillRect(marks[i].x * s - 2, marks[i].y * s - 2, 4, 4); /* נקודה קטנה */
+  }
+  miniCtx.fillStyle = '#22e3ff';                              /* השחקן בתכלת */
+  miniCtx.beginPath(); miniCtx.arc(p.x * s, p.y * s, 3, 0, Math.PI * 2); miniCtx.fill();
+}
+
+/* עזר לציור מלבן עם פינות מעוגלות (לא כל הדפדפנים תומכים ב-roundRect מובנה) */
+function roundRect(g, x, y, w, h, r) {
+  g.beginPath();                                              /* התחלת נתיב חדש */
+  g.moveTo(x + r, y);                                         /* נקודת הפתיחה אחרי הפינה */
+  g.lineTo(x + w - r, y); g.quadraticCurveTo(x + w, y, x + w, y + r);       /* פינה ימנית עליונה */
+  g.lineTo(x + w, y + h - r); g.quadraticCurveTo(x + w, y + h, x + w - r, y + h); /* ימנית תחתונה */
+  g.lineTo(x + r, y + h); g.quadraticCurveTo(x, y + h, x, y + h - r);       /* שמאלית תחתונה */
+  g.lineTo(x, y + r); g.quadraticCurveTo(x, y, x + r, y);                    /* שמאלית עליונה */
+  g.closePath();                                              /* סגירת הנתיב */
+}
+
+/* מחסנית הגופנים לשימוש בקנבס (לקנבס אין גישה למשתני CSS) */
+var FONT_STACK = '"Assistant","Rubik","Segoe UI",Arial,sans-serif';
+
+/* ============================================================================
+   בלוק 10 — שמע: צפצופים קצרים ב-Web Audio, ללא קבצים חיצוניים
+   ============================================================================ */
+
+var audioCtx = null;               /* הקשר השמע נוצר רק בפעולת משתמש ראשונה (דרישת הדפדפנים) */
+
+/* השמעת צליל קצר; כל שגיאה נבלעת כדי שהשמע לעולם לא יפיל את המשחק */
+function beep(freq, dur, type) {
+  if (state.muted) { return; }                                /* מצב השתקה */
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext; /* תמיכה גם בקידומת של ספארי */
+    if (!AC) { return; }                                       /* אין תמיכה — מדלגים בשקט */
+    if (!audioCtx) { audioCtx = new AC(); }                    /* יצירה עצלה בפעם הראשונה */
+    if (audioCtx.state === 'suspended') { audioCtx.resume(); } /* חידוש אחרי מדיניות ההשהיה */
+    var osc = audioCtx.createOscillator();                     /* מקור הצליל */
+    var gain = audioCtx.createGain();                          /* בקרת עוצמה */
+    osc.type = type || 'square';                               /* גל מרובע — צליל רטרו */
+    osc.frequency.value = freq;                                /* התדר המבוקש */
+    osc.connect(gain); gain.connect(audioCtx.destination);     /* חיבור שרשרת השמע */
+    var now = audioCtx.currentTime;                            /* זמן ההתחלה */
+    gain.gain.setValueAtTime(0.06, now);                       /* עוצמה נמוכה ונעימה */
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + dur); /* דעיכה מהירה */
+    osc.start(now); osc.stop(now + dur + 0.02);                /* הפעלה ועצירה */
+  } catch (e) { /* שמע אינו קריטי — ממשיכים בלעדיו */ }
+}
+
+/* צליל תשובה נכונה — שני צלילים עולים */
+function beepCorrect() { beep(660, 0.09, 'triangle'); window.setTimeout(function () { beep(990, 0.14, 'triangle'); }, 90); }
+/* צליל תשובה שגויה — צליל נמוך אחד */
+function beepWrong() { beep(180, 0.22, 'sawtooth'); }
+
+/* מעבר בין השתקה להפעלה, כולל עדכון הכפתור לצורכי נגישות */
+function toggleSound() {
+  state.muted = !state.muted;                                  /* היפוך המצב */
+  var btn = $('btnSound');                                     /* כפתור השמע ב-HUD */
+  setText(btn, state.muted ? '🔇' : '🔊');                     /* אייקון מתאים */
+  btn.setAttribute('aria-pressed', state.muted ? 'false' : 'true'); /* מצב לקוראי מסך */
+}
+
+/* ============================================================================
+   בלוק 11 — עדכוני ממשק ה-HUD
+   ============================================================================ */
+
+var toastTimer = 0;                /* מזהה הטיימר של ההודעה הצפה */
+
+/* רענון הנתונים בשורה העליונה */
+function updateHud() {
+  setText($('hudScore'), state.score);                                     /* ניקוד */
+  setText($('hudMarks'), state.collected + '/' + marks.length);            /* סימנים שנאספו מתוך הסך */
+  setText($('hudCorrect'), state.correct);                                 /* תשובות נכונות */
+}
+
+/* הצגת הודעה צפה קצרה במרכז המסך */
+function showToast(text) {
+  var el = $('toast');                                                     /* אלמנט ההודעה */
+  setText(el, text);                                                       /* טקסט בטוח */
+  el.hidden = false;                                                       /* הצגה */
+  window.clearTimeout(toastTimer);                                         /* ביטול טיימר קודם */
+  toastTimer = window.setTimeout(function () { el.hidden = true; }, 1500); /* הסתרה אוטומטית */
+}
+
+/* עדכון שורת הרמז לפי המצב הנוכחי (ברכב, ברגל, ליד הרכב) */
+function updateHint() {
+  var el = $('hint');                                                      /* אלמנט הרמז */
+  if (inCar) {                                                             /* במצב נהיגה */
+    setText(el, 'נהגו לעבר סימני השאלה · E ליציאה מהרכב');
+  } else {                                                                 /* במצב הליכה */
+    var near = Math.hypot(walker.x - car.x, walker.y - car.y) < ENTER_R;   /* האם הרכב בהישג יד */
+    setText(el, near ? 'E לכניסה לרכב' : 'הליכה — חזרו לרכב ולחצו E');
+  }
+  var act = $('btnAct');                                                   /* כפתור הפעולה במגע */
+  if (act) { setText(act, inCar ? 'רגל' : 'רכב'); }                        /* התווית משתנה לפי המצב */
+}
+
+/* ============================================================================
+   בלוק 12 — מודאל השאלה: פתיחה, מענה, משוב וסגירה
+   ============================================================================ */
+
+/* מצב המודאל הפעיל */
+var quiz = { q: null, mark: null, answered: false };
+
+/* חותמת זמן לעצירת שעון המשחק בזמן מודאל או השהיה */
+var clockStamp = 0;
+
+/* עצירת שעון המשחק */
+function freezeClock() { clockStamp = performance.now(); }
+
+/* הפעלת שעון המשחק מחדש, בלי לספור את זמן ההשהיה */
+function unfreezeClock() {
+  if (clockStamp) { state.startedAt += performance.now() - clockStamp; clockStamp = 0; }
+}
+
+/* איפוס כל דגלי התנועה — כדי שהרכב לא ימשיך לנסוע אחרי חזרה מהמודאל */
+function releaseKeys() {
+  keys.up = keys.down = keys.left = keys.right = false;       /* כיבוי כל הכיוונים */
+  var btns = document.querySelectorAll('.tbtn.on');           /* כפתורי מגע שנשארו לחוצים */
+  for (var i = 0; i < btns.length; i++) { btns[i].classList.remove('on'); } /* ניקוי המשוב */
+}
+
+/* פתיחת שאלה בעקבות איסוף סימן */
+function openQuestion(mark) {
+  var q = questions[mark.qIndex];                             /* השאלה המשויכת לסימן */
+  if (!q) { return; }                                         /* הגנה: אין שאלה — ממשיכים לשחק */
+  quiz = { q: q, mark: mark, answered: false };               /* אתחול מצב המודאל */
+  state.mode = 'quiz';                                        /* המשחק מושהה בזמן השאלה */
+  freezeClock();                                              /* עצירת שעון המשחק */
+  releaseKeys();                                              /* שחרור מקשים תקועים */
+
+  setText($('quizIndex'), 'סימן ' + state.collected + ' מתוך ' + marks.length); /* מונה התקדמות */
+  setText($('quizBrand'), CONFIG.brand);                      /* מיתוג ההאקתון */
+  setText($('quizText'), q.q);                                /* נוסח השאלה — textContent בלבד */
+
+  var box = $('quizAnswers');                                 /* מכל התשובות */
+  clearEl(box);                                               /* ניקוי תשובות קודמות */
+  for (var i = 0; i < q.answers.length; i++) {                /* בניית כפתור לכל תשובה */
+    box.appendChild(buildAnswerButton(q.answers[i], i));      /* הוספה למכל */
+  }
+
+  $('quizFeedback').hidden = true;                            /* הסתרת משוב קודם */
+  $('quizContinueRow').hidden = true;                         /* הסתרת כפתור ההמשך */
+  $('quizModal').hidden = false;                              /* הצגת המודאל */
+  var first = box.firstChild;                                 /* התשובה הראשונה */
+  if (first) { first.focus(); }                               /* מיקוד ראשוני לניווט מקלדת */
+}
+
+/* יצירת כפתור תשובה בודד. הטקסט נכנס דרך textContent — הגנת XSS. */
+function buildAnswerButton(text, index) {
+  var btn = document.createElement('button');                 /* אלמנט הכפתור */
+  btn.type = 'button';                                        /* לא כפתור שליחה של טופס */
+  btn.className = 'ans';                                      /* עיצוב */
+  btn.setAttribute('data-index', String(index));              /* שמירת האינדקס לצורך הבדיקה */
+  var num = document.createElement('span');                   /* התגית המספרית */
+  num.className = 'num';                                      /* עיצוב התגית */
+  setText(num, String(index + 1));                            /* מספר סידורי לניווט מקלדת */
+  var label = document.createElement('span');                 /* טקסט התשובה */
+  setText(label, text);                                       /* הזרקה בטוחה */
+  btn.appendChild(num);                                       /* הרכבת הכפתור */
+  btn.appendChild(label);
+  btn.addEventListener('click', function () { answerQuestion(index); }); /* בחירה בלחיצה */
+  return btn;                                                 /* הכפתור המוכן */
+}
+
+/* טיפול בבחירת תשובה */
+function answerQuestion(index) {
+  if (quiz.answered || !quiz.q) { return; }                   /* מונע מענה כפול */
+  quiz.answered = true;                                       /* נעילת המודאל */
+  var isRight = index === quiz.q.correct;                     /* האם התשובה נכונה */
+
+  var btns = $('quizAnswers').children;                       /* כל כפתורי התשובה */
+  for (var i = 0; i < btns.length; i++) {                     /* סימון וניטרול */
+    btns[i].disabled = true;                                  /* אי אפשר לשנות תשובה */
+    if (i === quiz.q.correct) { btns[i].classList.add('correct'); }   /* הדגשת הנכונה */
+    else if (i === index) { btns[i].classList.add('wrong'); }         /* הדגשת הבחירה השגויה */
+  }
+
+  if (isRight) {                                              /* עדכון ניקוד ומונים */
+    state.correct++;                                          /* מונה התשובות הנכונות */
+    state.score += CONFIG.pointsCorrect;                      /* תוספת ניקוד */
+    beepCorrect();                                            /* צליל חיובי */
+  } else {
+    state.score += CONFIG.pointsWrong;                        /* ניקוד על תשובה שגויה (0 כברירת מחדל) */
+    beepWrong();                                              /* צליל שלילי */
+  }
+  updateHud();                                                /* רענון ה-HUD מאחורי המודאל */
+
+  var fb = $('quizFeedback');                                 /* תיבת המשוב */
+  clearEl(fb);                                                /* ניקוי משוב קודם */
+  fb.className = 'feedback ' + (isRight ? 'ok' : 'no');       /* צביעה לפי נכונות */
+  var title = document.createElement('strong');               /* כותרת המשוב */
+  setText(title, isRight ? 'נכון! ' + CONFIG.pointsCorrect + ' נקודות' : 'לא מדויק');
+  fb.appendChild(title);
+  if (!isRight) {                                             /* בתשובה שגויה מציגים את הנכונה */
+    var right = document.createElement('div');
+    setText(right, 'התשובה הנכונה: ' + quiz.q.answers[quiz.q.correct]);
+    fb.appendChild(right);
+  }
+  if (CONFIG.showExplanation && quiz.q.explain) {             /* הסבר, אם הוגדר */
+    var ex = document.createElement('div');
+    ex.style.marginTop = '6px';                               /* ריווח קל מהשורה שמעל */
+    ex.style.color = 'var(--ink-2)';                          /* גוון משני */
+    setText(ex, quiz.q.explain);
+    fb.appendChild(ex);
+  }
+  fb.hidden = false;                                          /* הצגת המשוב */
+
+  state.results.push({                                        /* תיעוד לסיכום בסוף המשחק */
+    q: quiz.q.q,                                              /* נוסח השאלה */
+    right: quiz.q.answers[quiz.q.correct],                    /* התשובה הנכונה */
+    chosen: quiz.q.answers[index],                            /* מה שנבחר בפועל */
+    ok: isRight                                               /* האם נכון */
+  });
+
+  $('quizContinueRow').hidden = false;                        /* חשיפת כפתור ההמשך */
+  $('btnContinue').focus();                                   /* מיקוד עליו לנוחות מקלדת */
+}
+
+/* סגירת המודאל וחזרה למשחק, או מעבר למסך הסיום אם נאספו כל הסימנים */
+function closeQuestion() {
+  $('quizModal').hidden = true;                               /* הסתרת המודאל */
+  quiz = { q: null, mark: null, answered: false };            /* ניקוי המצב */
+  if (state.collected >= marks.length) { endGame(); return; } /* סיימנו את כל הסימנים */
+  state.mode = 'play';                                        /* חזרה למשחק */
+  unfreezeClock();                                            /* חידוש שעון המשחק */
+  releaseKeys();                                              /* ודאות שאין מקשים תקועים */
+  canvas.focus();                                             /* החזרת הפוקוס לאזור המשחק */
+}
+
+/* מיפוי מקשים ייעודי בזמן שהמודאל פתוח */
+function handleQuizKey(e) {
+  if (!quiz.q) { return; }                                    /* המודאל אינו פעיל */
+  if (!quiz.answered) {                                       /* לפני מענה — ספרות בוחרות תשובה */
+    var n = parseInt(e.key, 10);                              /* המרת המקש למספר */
+    if (n >= 1 && n <= quiz.q.answers.length) { answerQuestion(n - 1); e.preventDefault(); return; }
+  }
+  if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {       /* ניווט בין התשובות בחצים */
+    var list = $('quizAnswers').children;                     /* כפתורי התשובה */
+    var idx = -1;                                             /* מיקום הפוקוס הנוכחי */
+    for (var i = 0; i < list.length; i++) { if (list[i] === document.activeElement) { idx = i; } }
+    var next = e.code === 'ArrowDown' ? idx + 1 : idx - 1;    /* היעד הבא */
+    if (next < 0) { next = list.length - 1; }                 /* גלישה מלמעלה לתחתית */
+    if (next >= list.length) { next = 0; }                    /* וגלישה בכיוון ההפוך */
+    if (list[next] && !list[next].disabled) { list[next].focus(); } /* מיקוד היעד */
+    e.preventDefault();                                       /* מניעת גלילת הדף */
+    return;
+  }
+  if (quiz.answered && (e.code === 'Enter' || e.code === 'Space' || e.code === 'Escape')) {
+    closeQuestion();                                          /* המשך אחרי מענה */
+    e.preventDefault();
+  }
+}
+
+/* ============================================================================
+   בלוק 13 — מחזור חיי המשחק: התחלה, השהיה, סיום
+   ============================================================================ */
+
+/* רשימת כל המסכים המלאים, לניהול מרוכז של מה מוצג */
+var SCREENS = ['screenStart', 'screenPause', 'screenEnd', 'screenEditor'];
+
+/* הצגת מסך אחד והסתרת השאר; ערך null מסתיר את כולם */
+function showScreen(id) {
+  for (var i = 0; i < SCREENS.length; i++) {                  /* מעבר על כל המסכים */
+    $(SCREENS[i]).hidden = SCREENS[i] !== id;                 /* רק המבוקש גלוי */
+  }
+  $('hud').hidden = id !== null;                              /* ה-HUD מוצג רק כשאין מסך מלא */
+}
+
+/* התחלת משחק חדש */
+function startGame() {
+  questions = loadQuestions();                                /* טעינה מחדש — אולי נערכו שאלות */
+  state.score = 0;                                            /* איפוס ניקוד */
+  state.correct = 0;                                          /* איפוס מונה תשובות נכונות */
+  state.collected = 0;                                        /* איפוס מונה איסוף */
+  state.results = [];                                         /* ניקוי הסיכום */
+  state.startedAt = performance.now();                        /* התחלת שעון */
+  clockStamp = 0;                                             /* אין השהיה פעילה */
+
+  car.x = bandCenter(3);                                      /* נקודת פתיחה בצומת מרכזי */
+  car.y = bandCenter(3);
+  car.angle = 0;                                              /* פנים לכיוון החיובי של ציר X */
+  car.speed = 0;                                              /* עומד במקום */
+  walker.x = car.x; walker.y = car.y;                         /* הדמות מתחילה באותו מקום */
+  inCar = true;                                               /* מתחילים ברכב */
+
+  var count = Math.min(CONFIG.markCount, questions.length);   /* לא יותר סימנים משאלות */
+  placeMarks(count);                                          /* פיזור הסימנים במפה */
+  assignQuestions();                                          /* הצמדת שאלה לכל סימן */
+
+  state.mode = 'play';                                        /* המשחק רץ */
+  showScreen(null);                                           /* הסתרת כל המסכים */
+  releaseKeys();                                              /* מקשים נקיים */
+  updateHud();                                                /* רענון נתונים */
+  updateHint();                                               /* רענון שורת הרמז */
+  beep(520, 0.1);                                             /* צליל התחלה */
+}
+
+/* השהיית המשחק */
+function pauseGame() {
+  if (state.mode !== 'play') { return; }                      /* אפשר להשהות רק משחק פעיל */
+  state.mode = 'pause';                                       /* מצב השהיה */
+  freezeClock();                                              /* עצירת השעון */
+  releaseKeys();                                              /* שחרור מקשים */
+  setText($('pauseInfo'), 'נאספו ' + state.collected + ' מתוך ' + marks.length + ' סימנים · ניקוד ' + state.score);
+  showScreen('screenPause');                                  /* הצגת מסך ההשהיה */
+  $('btnResume').focus();                                     /* מיקוד לנוחות מקלדת */
+}
+
+/* חזרה מהשהיה */
+function resumeGame() {
+  state.mode = 'play';                                        /* חזרה למצב משחק */
+  unfreezeClock();                                            /* חידוש השעון */
+  showScreen(null);                                           /* הסתרת המסכים */
+  releaseKeys();                                              /* ניקוי מקשים */
+}
+
+/* סיום המשחק והצגת הסיכום */
+function endGame() {
+  state.mode = 'end';                                         /* מצב סיום */
+  unfreezeClock();                                            /* עצירת ספירת ההשהיה */
+  var total = marks.length;                                   /* סך הסימנים במשחק */
+
+  setText($('endTitle'), state.correct === total ? 'מושלם!' : 'כל הכבוד!');  /* כותרת לפי הביצוע */
+  setText($('endScore'), state.score);                                        /* ניקוד סופי */
+  setText($('endCorrect'), state.correct + '/' + total);                      /* יחס נכונות */
+  setText($('endTime'), formatTime(state.elapsed));                           /* משך המשחק */
+  setText($('endCta'), CONFIG.cta);                                           /* קריאה לפעולה */
+
+  var best = parseInt(storageGet(STORE_BEST), 10);            /* השיא השמור */
+  if (!(best >= 0)) { best = 0; }                             /* ערך פגום או חסר — מתחילים מאפס */
+  if (state.score > best) {                                   /* שיא חדש */
+    storageSet(STORE_BEST, String(state.score));              /* שמירה */
+    setText($('endBest'), 'שיא חדש! 🏆');                     /* הודעה לשחקן */
+  } else {
+    setText($('endBest'), 'השיא שלכם: ' + best);              /* הצגת השיא הקיים */
+  }
+
+  var review = $('endReview');                                /* מכל הסיכום */
+  clearEl(review);                                            /* ניקוי סיכום קודם */
+  for (var i = 0; i < state.results.length; i++) {            /* שורה לכל שאלה שנענתה */
+    var r = state.results[i];                                 /* הרשומה הנוכחית */
+    var row = document.createElement('div');                  /* אלמנט השורה */
+    row.className = 'review-item ' + (r.ok ? 'ok' : 'no');    /* צביעה לפי נכונות */
+    var qEl = document.createElement('div');                  /* נוסח השאלה */
+    setText(qEl, (i + 1) + '. ' + r.q);                       /* מספור + טקסט */
+    row.appendChild(qEl);
+    var aEl = document.createElement('div');                  /* שורת התשובה */
+    aEl.style.marginTop = '4px';                              /* ריווח קל */
+    if (r.ok) {                                               /* ענו נכון */
+      var em = document.createElement('em');                  /* הדגשה ירוקה */
+      setText(em, '✔ ' + r.right);
+      aEl.appendChild(em);
+    } else {                                                  /* ענו לא נכון */
+      var wrongEl = document.createElement('span');           /* מה שנבחר */
+      wrongEl.style.color = 'var(--muted)';
+      setText(wrongEl, '✘ ' + r.chosen + ' · ');
+      var rightEl = document.createElement('em');             /* מה שהיה נכון */
+      setText(rightEl, r.right);
+      aEl.appendChild(wrongEl);
+      aEl.appendChild(rightEl);
+    }
+    row.appendChild(aEl);
+    review.appendChild(row);                                  /* הוספה לרשימה */
+  }
+
+  showScreen('screenEnd');                                    /* הצגת מסך הסיום */
+  $('btnPlayAgain').focus();                                  /* מיקוד לנוחות מקלדת */
+}
+
+/* ============================================================================
+   בלוק 14 — עורך השאלות: רשימה, טופס, ייצוא וייבוא
+   ============================================================================ */
+
+var editIndex = -1;                /* אינדקס השאלה הנערכת; ‎-1 פירושו שאלה חדשה */
+
+/* פתיחת מסך העורך */
+function openEditor() {
+  state.mode = 'editor';                                      /* המשחק אינו רץ בזמן עריכה */
+  releaseKeys();                                              /* שחרור מקשים */
+  hideForm();                                                 /* הטופס סגור בכניסה */
+  hideEditorNote();                                           /* ללא הודעות ישנות */
+  renderQList();                                              /* בניית רשימת השאלות */
+  showScreen('screenEditor');                                 /* הצגת המסך */
+}
+
+/* סגירת העורך וחזרה למסך הפתיחה (השאלות החדשות ייכנסו לתוקף במשחק הבא) */
+function closeEditor() {
+  state.mode = 'start';                                       /* חזרה למצב פתיחה */
+  refreshStartScreen();                                       /* עדכון מונה השאלות במסך הפתיחה */
+  showScreen('screenStart');                                  /* הצגת מסך הפתיחה */
+}
+
+/* בניית רשימת השאלות הקיימות עם כפתורי עריכה ומחיקה */
+function renderQList() {
+  var list = $('qlist');                                      /* מכל הרשימה */
+  clearEl(list);                                              /* ניקוי לפני בנייה מחדש */
+  if (questions.length === 0) {                               /* מצב ריק — לא אמור לקרות בזכות הוולידציה */
+    var empty = document.createElement('div');
+    empty.className = 'empty';
+    setText(empty, 'אין שאלות. הוסיפו שאלה חדשה.');
+    list.appendChild(empty);
+    return;
+  }
+  for (var i = 0; i < questions.length; i++) {                /* שורה לכל שאלה */
+    list.appendChild(buildQItem(questions[i], i));            /* בניית הכרטיס */
+  }
+}
+
+/* בניית כרטיס שאלה בודד ברשימת העורך */
+function buildQItem(q, index) {
+  var item = document.createElement('div');                   /* מעטפת הכרטיס */
+  item.className = 'qitem';
+
+  var body = document.createElement('div');                   /* גוף הכרטיס */
+  body.className = 'body';
+  var title = document.createElement('b');                    /* נוסח השאלה */
+  setText(title, (index + 1) + '. ' + q.q);                   /* מספור + טקסט, בהזרקה בטוחה */
+  var sub = document.createElement('span');                   /* התשובה הנכונה */
+  setText(sub, '✔ ' + q.answers[q.correct] + '  ·  ' + q.answers.length + ' תשובות');
+  body.appendChild(title);
+  body.appendChild(sub);
+
+  var edit = document.createElement('button');                /* כפתור עריכה */
+  edit.type = 'button';
+  edit.className = 'btn small';
+  setText(edit, 'עריכה');
+  edit.addEventListener('click', function () { showForm(index); }); /* פתיחת הטופס עם הערכים */
+
+  var del = document.createElement('button');                 /* כפתור מחיקה */
+  del.type = 'button';
+  del.className = 'btn small danger';
+  setText(del, 'מחיקה');
+  del.addEventListener('click', function () { deleteQuestion(index); }); /* מחיקה עם אישור */
+
+  item.appendChild(body);                                     /* הרכבת הכרטיס */
+  item.appendChild(edit);
+  item.appendChild(del);
+  return item;
+}
+
+/* מחיקת שאלה, עם אישור ועם הגנה מפני ריקון המאגר */
+function deleteQuestion(index) {
+  if (questions.length <= 1) {                                /* חייבת להישאר לפחות שאלה אחת */
+    showEditorNote('חייבת להישאר לפחות שאלה אחת במאגר.', true);
+    return;
+  }
+  if (!window.confirm('למחוק את השאלה "' + questions[index].q + '"?')) { return; } /* אישור מפורש */
+  questions.splice(index, 1);                                 /* הסרה מהמערך */
+  persistAndNote('השאלה נמחקה.');                             /* שמירה והודעה */
+  renderQList();                                              /* רענון הרשימה */
+  hideForm();                                                 /* סגירת הטופס אם היה פתוח על שאלה זו */
+}
+
+/* פתיחת טופס העריכה. index שווה ‎-1 פותח טופס ריק לשאלה חדשה. */
+function showForm(index) {
+  editIndex = index;                                          /* שמירת ההקשר */
+  var q = index >= 0 ? questions[index] : null;               /* השאלה הנערכת, אם קיימת */
+  setText($('qformTitle'), q ? 'עריכת שאלה' : 'שאלה חדשה');   /* כותרת מתאימה */
+  $('fQ').value = q ? q.q : '';                               /* נוסח השאלה */
+  $('fExplain').value = q ? q.explain : '';                   /* ההסבר */
+  renderFormAnswers(q ? q.answers.slice() : ['', ''], q ? q.correct : 0); /* שדות התשובות */
+  $('formError').hidden = true;                               /* ניקוי שגיאה קודמת */
+  $('qform').hidden = false;                                  /* הצגת הטופס */
+  $('fQ').focus();                                            /* מיקוד בשדה הראשון */
+}
+
+/* סגירת טופס העריכה */
+function hideForm() {
+  $('qform').hidden = true;                                   /* הסתרה */
+  editIndex = -1;                                             /* איפוס ההקשר */
+}
+
+/* בניית שורות התשובות בטופס לפי ערכים נתונים */
+function renderFormAnswers(values, correct) {
+  var box = $('fAnswers');                                    /* מכל השורות */
+  clearEl(box);                                               /* ניקוי */
+  for (var i = 0; i < values.length; i++) {                   /* שורה לכל תשובה */
+    box.appendChild(buildAnswerRow(values[i], i, i === correct, values.length));
+  }
+}
+
+/* בניית שורת תשובה אחת: רדיו "נכונה" + שדה טקסט + כפתור הסרה */
+function buildAnswerRow(value, index, checked, total) {
+  var row = document.createElement('div');                    /* מעטפת השורה */
+  row.className = 'ansrow';
+
+  var radio = document.createElement('input');                /* בחירת התשובה הנכונה */
+  radio.type = 'radio';
+  radio.name = 'fCorrect';                                    /* שם משותף = בחירה יחידה */
+  radio.checked = checked;                                    /* סימון הנוכחית */
+  radio.setAttribute('aria-label', 'סימון תשובה ' + (index + 1) + ' כנכונה'); /* נגישות */
+
+  var input = document.createElement('input');                /* שדה טקסט התשובה */
+  input.type = 'text';
+  input.maxLength = LIMIT_A;                                  /* הגבלת אורך גם בצד הממשק */
+  input.value = value;                                        /* הערך הקיים */
+  input.placeholder = 'תשובה ' + (index + 1);                 /* רמז ויזואלי */
+  input.style.flex = '1';                                     /* תופס את שאר הרוחב */
+
+  var remove = document.createElement('button');              /* כפתור הסרת השורה */
+  remove.type = 'button';
+  remove.className = 'btn small danger';
+  setText(remove, '×');
+  remove.disabled = total <= 2;                               /* אי אפשר לרדת מתחת לשתי תשובות */
+  remove.addEventListener('click', function () { removeAnswerRow(index); });
+
+  row.appendChild(radio);                                     /* הרכבת השורה */
+  row.appendChild(input);
+  row.appendChild(remove);
+  return row;
+}
+
+/* קריאת מצב שדות התשובות מה-DOM (ערכים + מי מסומנת כנכונה) */
+function readFormAnswers() {
+  var rows = $('fAnswers').children;                          /* כל השורות */
+  var values = [];                                            /* ערכי הטקסט */
+  var correct = 0;                                            /* אינדקס הנכונה */
+  for (var i = 0; i < rows.length; i++) {                     /* מעבר על השורות */
+    var text = rows[i].querySelector('input[type=text]');     /* שדה הטקסט בשורה */
+    var radio = rows[i].querySelector('input[type=radio]');   /* הרדיו בשורה */
+    values.push(text ? text.value : '');                      /* איסוף הערך */
+    if (radio && radio.checked) { correct = i; }              /* איתור הנכונה */
+  }
+  return { values: values, correct: correct };                /* מצב הטופס */
+}
+
+/* הוספת שורת תשובה חדשה, תוך שמירת מה שכבר הוקלד */
+function addAnswerRow() {
+  var st = readFormAnswers();                                 /* קריאת המצב הנוכחי */
+  if (st.values.length >= LIMIT_ANSWERS) {                    /* תקרת תשובות */
+    showFormError('אפשר עד ' + LIMIT_ANSWERS + ' תשובות לשאלה.');
+    return;
+  }
+  st.values.push('');                                         /* שורה ריקה חדשה */
+  renderFormAnswers(st.values, st.correct);                   /* בנייה מחדש */
+}
+
+/* הסרת שורת תשובה, עם התאמת סימון התשובה הנכונה */
+function removeAnswerRow(index) {
+  var st = readFormAnswers();                                 /* קריאת המצב */
+  if (st.values.length <= 2) { return; }                      /* מינימום שתי תשובות */
+  st.values.splice(index, 1);                                 /* הסרת השורה */
+  var correct = st.correct;                                   /* התאמת האינדקס הנכון */
+  if (index < correct) { correct--; }                         /* נמחקה שורה שלפניו — הזזה אחורה */
+  else if (index === correct) { correct = 0; }                /* נמחקה הנכונה עצמה — ברירת מחדל */
+  renderFormAnswers(st.values, clamp(correct, 0, st.values.length - 1)); /* בנייה מחדש */
+}
+
+/* שמירת הטופס אל המאגר, אחרי מעבר באותה ולידציה שעוברות שאלות מיובאות */
+function saveForm() {
+  var st = readFormAnswers();                                 /* ערכי התשובות */
+  var draft = {                                               /* טיוטת השאלה */
+    q: $('fQ').value,                                         /* נוסח */
+    answers: st.values,                                       /* תשובות */
+    correct: st.correct,                                      /* הנכונה */
+    explain: $('fExplain').value                              /* הסבר */
+  };
+  var clean;                                                  /* הרשומה אחרי ולידציה */
+  try {
+    clean = validateQuestions([draft])[0];                    /* אותה ולידציה בדיוק כמו בייבוא */
+  } catch (e) {
+    showFormError('לא ניתן לשמור: צריך נוסח שאלה, לפחות שתי תשובות לא ריקות, וסימון של התשובה הנכונה.');
+    return;                                                   /* עצירה — המאגר לא משתנה */
+  }
+  if (editIndex >= 0) { questions[editIndex] = clean; }       /* עדכון שאלה קיימת */
+  else { 
+    if (questions.length >= LIMIT_QUESTIONS) {                /* תקרת מאגר */
+      showFormError('הגעתם למספר השאלות המרבי (' + LIMIT_QUESTIONS + ').');
+      return;
+    }
+    questions.push(clean);                                    /* הוספת שאלה חדשה */
+  }
+  persistAndNote(editIndex >= 0 ? 'השאלה עודכנה.' : 'השאלה נוספה.'); /* שמירה והודעה */
+  renderQList();                                              /* רענון הרשימה */
+  hideForm();                                                 /* סגירת הטופס */
+}
+
+/* הצגת שגיאת טופס */
+function showFormError(msg) {
+  var el = $('formError');                                    /* אלמנט השגיאה */
+  setText(el, msg);                                           /* טקסט */
+  el.hidden = false;                                          /* הצגה */
+}
+
+/* שמירה ל-localStorage + הודעת סטטוס למשתמש */
+function persistAndNote(msg) {
+  var ok = saveQuestions();                                   /* ניסיון שמירה */
+  showEditorNote(ok ? msg + ' השינוי נשמר בדפדפן הזה.' : msg + ' ⚠️ לא ניתן לשמור בדפדפן — ייצאו JSON כדי לא לאבד את השינוי.', !ok);
+}
+
+/* הצגת הודעת סטטוס בעורך */
+function showEditorNote(msg, isError) {
+  var el = $('editorNote');                                   /* אלמנט ההודעה */
+  el.className = 'note ' + (isError ? 'err' : 'ok');          /* צביעה לפי סוג */
+  setText(el, msg);                                           /* טקסט */
+  el.hidden = false;                                          /* הצגה */
+}
+
+/* הסתרת הודעת הסטטוס */
+function hideEditorNote() { $('editorNote').hidden = true; }
+
+/* ייצוא המאגר לקובץ JSON להורדה */
+function exportQuestions() {
+  try {
+    var data = JSON.stringify(questions, null, 2);                          /* סריאליזציה קריאה */
+    var blob = new Blob([data], { type: 'application/json;charset=utf-8' }); /* אובייקט הקובץ */
+    var url = URL.createObjectURL(blob);                                    /* כתובת זמנית */
+    var a = document.createElement('a');                                    /* קישור הורדה */
+    a.href = url;
+    a.download = 'noizz26-questions.json';                                  /* שם הקובץ */
+    document.body.appendChild(a);                                           /* חייב להיות ב-DOM לחלק מהדפדפנים */
+    a.click();                                                              /* הפעלת ההורדה */
+    document.body.removeChild(a);                                           /* ניקוי */
+    window.setTimeout(function () { URL.revokeObjectURL(url); }, 1000);     /* שחרור הזיכרון */
+    showEditorNote('הקובץ noizz26-questions.json ירד למחשב.', false);
+  } catch (e) {
+    showEditorNote('הייצוא נכשל בדפדפן הזה.', true);                        /* כשל — הודעה גנרית */
+  }
+}
+
+/* טיפול בקובץ שנבחר לייבוא */
+function handleImportFile(file) {
+  if (!file) { return; }                                                    /* לא נבחר קובץ */
+  if (file.size > 512 * 1024) {                                             /* תקרת גודל — הגנה מפני קובץ ענק */
+    showEditorNote('הקובץ גדול מדי (מעל 512KB).', true);
+    return;
+  }
+  var reader = new FileReader();                                            /* קורא הקובץ */
+  reader.onload = function () {
+    var parsed;                                                             /* התוכן אחרי פענוח */
+    try { parsed = JSON.parse(String(reader.result)); }                     /* פענוח JSON */
+    catch (e) { showEditorNote('הקובץ אינו JSON תקין.', true); return; }    /* הודעה גנרית, בלי פרטי שגיאה פנימיים */
+    var clean;                                                              /* התוכן אחרי ולידציה */
+    try { clean = validateQuestions(parsed); }                              /* ולידציית סכימה מלאה */
+    catch (e) { showEditorNote('לא נמצאו שאלות תקינות בקובץ.', true); return; }
+    if (!window.confirm('לייבא ' + clean.length + ' שאלות ולהחליף את המאגר הנוכחי?')) { return; } /* אישור */
+    questions = clean;                                                      /* החלפת המאגר */
+    persistAndNote('יובאו ' + clean.length + ' שאלות.');                    /* שמירה והודעה */
+    renderQList();                                                          /* רענון הרשימה */
+    hideForm();                                                             /* סגירת הטופס */
+  };
+  reader.onerror = function () { showEditorNote('קריאת הקובץ נכשלה.', true); }; /* כשל קריאה */
+  reader.readAsText(file);                                                  /* קריאה כטקסט */
+}
+
+/* איפוס המאגר לשאלות ברירת המחדל שבקוד */
+function resetQuestions() {
+  if (!window.confirm('לאפס את המאגר ולחזור לשאלות ברירת המחדל שבקובץ? השינויים שנשמרו בדפדפן יימחקו.')) { return; }
+  try { window.localStorage.removeItem(STORE_QUESTIONS); } catch (e) { /* אין גישה לאחסון — לא קריטי */ }
+  questions = validateQuestions(DEFAULT_QUESTIONS);                         /* טעינה מחדש מהקוד */
+  showEditorNote('המאגר אופס לשאלות ברירת המחדל.', false);                  /* הודעה */
+  renderQList();                                                            /* רענון */
+  hideForm();                                                               /* סגירת הטופס */
+}
+
+/* ============================================================================
+   בלוק 15 — אתחול, חיווט אירועים ולולאת המשחק
+   ============================================================================ */
+
+var lastTs = 0;                    /* חותמת הפריים הקודם, לחישוב dt */
+
+/* לולאת המשחק: מתעדכנת רק במצב 'play', אך מציירת תמיד כדי שהעולם ייראה מאחורי המסכים */
+function frame(ts) {
+  window.requestAnimationFrame(frame);                        /* תזמון הפריים הבא */
+  if (!lastTs) { lastTs = ts; }                               /* אתחול בפריים הראשון */
+  var dt = (ts - lastTs) / 1000;                              /* הפרש הזמן בשניות */
+  lastTs = ts;                                                /* שמירה לפריים הבא */
+  if (dt > 0.05) { dt = 0.05; }                               /* תקרה — מונעת "קפיצה" דרך קירות אחרי חזרה לטאב */
+  if (state.mode === 'play') { update(dt); }                  /* עדכון פיזיקה רק במשחק פעיל */
+  render(ts);                                                 /* ציור הפריים */
+}
+
+/* מילוי הטקסטים במסך הפתיחה מתוך CONFIG ומצב המאגר */
+function refreshStartScreen() {
+  setText($('startKicker'), CONFIG.kicker);                                          /* שורת העל */
+  setText($('startLogo'), CONFIG.brand);                                             /* הלוגו */
+  setText($('startTagline'), CONFIG.tagline);                                        /* המשפט הקצר */
+  setText($('startIntro'), CONFIG.intro);                                            /* פסקת ההסבר */
+  var count = Math.min(CONFIG.markCount, questions.length);                          /* כמה סימנים יהיו במשחק */
+  setText($('startCount'), count + ' סימני שאלה במפה · ' + questions.length + ' שאלות במאגר'); /* מידע לשחקן */
+}
+
+/* חיווט כל כפתורי הממשק לפעולות */
+function wireUI() {
+  $('btnStart').addEventListener('click', startGame);                       /* התחלת משחק */
+  $('btnEditorFromStart').addEventListener('click', openEditor);            /* עורך ממסך הפתיחה */
+  $('btnResume').addEventListener('click', resumeGame);                     /* חזרה מהשהיה */
+  $('btnRestart').addEventListener('click', startGame);                     /* משחק חדש מההשהיה */
+  $('btnEditorFromPause').addEventListener('click', openEditor);            /* עורך מההשהיה */
+  $('btnPlayAgain').addEventListener('click', startGame);                   /* משחק נוסף מהסיום */
+  $('btnEditorFromEnd').addEventListener('click', openEditor);              /* עורך מהסיום */
+  $('btnPause').addEventListener('click', pauseGame);                       /* כפתור ההשהיה ב-HUD */
+  $('btnSound').addEventListener('click', toggleSound);                     /* כפתור השמע */
+  $('btnContinue').addEventListener('click', closeQuestion);                /* המשך אחרי שאלה */
+
+  $('btnNewQ').addEventListener('click', function () { showForm(-1); });    /* שאלה חדשה */
+  $('btnSaveQ').addEventListener('click', saveForm);                        /* שמירת הטופס */
+  $('btnCancelQ').addEventListener('click', hideForm);                      /* ביטול העריכה */
+  $('btnAddAnswer').addEventListener('click', addAnswerRow);                /* הוספת תשובה */
+  $('btnExport').addEventListener('click', exportQuestions);                /* ייצוא */
+  $('btnImport').addEventListener('click', function () { $('fileImport').click(); }); /* פתיחת בורר הקבצים */
+  $('fileImport').addEventListener('change', function (e) {                 /* קובץ נבחר */
+    handleImportFile(e.target.files && e.target.files[0]);                  /* טיפול בקובץ */
+    e.target.value = '';                                                    /* איפוס כדי לאפשר בחירה חוזרת של אותו קובץ */
+  });
+  $('btnResetQ').addEventListener('click', resetQuestions);                 /* איפוס לברירת מחדל */
+  $('btnCloseEditor').addEventListener('click', closeEditor);               /* סגירת העורך */
+}
+
+/* אתחול כללי — נקודת הכניסה של המשחק */
+function init() {
+  canvas = $('game');                                         /* הקנבס הראשי */
+  ctx = canvas.getContext('2d');                              /* הקשר הציור */
+  canvas.setAttribute('tabindex', '-1');                      /* מאפשר focus() תכנותי בלי להיכנס לסדר ה-Tab */
+  miniCtx = $('minimap').getContext('2d');                    /* הקשר המיני-מפה */
+
+  questions = loadQuestions();                                /* טעינת מאגר השאלות */
+  buildCity();                                                /* יצירת מבנה העיר */
+  renderWorldCanvas();                                        /* ציור מוקדם של העיר */
+
+  resizeCanvas();                                             /* התאמת גודל ראשונית */
+  window.addEventListener('resize', resizeCanvas);            /* והתאמה בכל שינוי גודל חלון */
+
+  document.addEventListener('keydown', onKeyDown);            /* קלט מקלדת — לחיצה */
+  document.addEventListener('keyup', onKeyUp);                /* קלט מקלדת — שחרור */
+  window.addEventListener('blur', releaseKeys);               /* יציאה מהחלון משחררת מקשים תקועים */
+  document.addEventListener('visibilitychange', function () { /* מעבר לטאב אחר */
+    if (document.hidden && state.mode === 'play') { pauseGame(); } /* השהיה אוטומטית */
+  });
+
+  wireTouchControls();                                        /* חיווט כפתורי המגע */
+  wireUI();                                                   /* חיווט כפתורי הממשק */
+
+  if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) { /* זיהוי מכשיר מגע */
+    $('touch').hidden = false;                                /* הצגת כפתורי המגע */
+    $('hud').classList.add('has-touch');                      /* מרימה את שורת הרמז מעל הכפתורים */
+  }
+
+  refreshStartScreen();                                       /* מילוי מסך הפתיחה */
+  showScreen('screenStart');                                  /* הצגת מסך הפתיחה */
+  window.requestAnimationFrame(frame);                        /* הפעלת לולאת המשחק */
+}
+
+/* הרצת האתחול אחרי שה-DOM מוכן */
+if (document.readyState === 'loading') {                      /* המסמך עדיין נטען */
+  document.addEventListener('DOMContentLoaded', init);        /* המתנה לסיום הטעינה */
+} else {
+  init();                                                     /* המסמך כבר מוכן — אתחול מיידי */
+}
+
+})();
+</script>
+</body>
+</html>
