@@ -667,8 +667,36 @@ var buildings = [];                /* מלבני הבניינים לציור (ב
 var props = [];                    /* עצים ופרטי נוי (בפיקסלים) */
 var lamps = [];                    /* פנסי רחוב בצמתים, לציור הילות אור */
 
-/* פלטת צבעי הבניינים — גוונים כהים בסגנון עיר לילה */
-var BUILDING_COLORS = ['#1d2440', '#232a4c', '#1a2b3e', '#2b2440', '#182338', '#26203a', '#1f3140'];
+/* שכונות העיר. לכל שכונה פלטת קירות, צבע גג, גוון מדרכה, צפיפות שלטי ניאון
+   וטווח קומות משלה — כך שהעיר מרגישה מחולקת לאזורים, כמו ב-GTA2. */
+var DISTRICTS = [
+  { walls: ['#3c4c86', '#33427a', '#475a9c', '#2e3d70'], roof: '#28335c', walk: '#2b3149', signRate: 0.80, floors: [4, 7] }, /* מרכז עסקים — פלדה וכחול */
+  { walls: ['#5f4634', '#4e3a2b', '#6b503c', '#453324'], roof: '#3b2d23', walk: '#2f2c27', signRate: 0.38, floors: [2, 4] }, /* תעשייה — חלודה וחום */
+  { walls: ['#714945', '#5e3a36', '#7d5451', '#523130'], roof: '#412b2c', walk: '#342d33', signRate: 0.32, floors: [3, 5] }, /* מגורים — לבנים חמות */
+  { walls: ['#39644c', '#2f5540', '#437155', '#284a37'], roof: '#234032', walk: '#27342d', signRate: 0.24, floors: [2, 4] }  /* רובע הפארקים — ירוק */
+];
+
+/* צבעי הניאון של השלטים — הצבעים הרוויים שמאירים את רחובות GTA2 */
+var NEON_COLORS = ['#ff2fa8', '#22e3ff', '#ffd23f', '#3ddc84', '#ff7a3d', '#a97bff'];
+
+/* צבע האספלט — במשתנה אחד כי הוא משמש גם לניקוי סימוני הכביש בצמתים */
+var ASPHALT = '#12141f';
+
+/* איזו שכונה שייכת למבנן נתון: ליבה עסקית במרכז וטבעות סביבה */
+function districtFor(bx, by) {
+  var blocks = Math.floor(GRID / BLOCK);            /* מספר המבננים בכל ציר */
+  var mid = (blocks - 1) / 2;                       /* מרכז רשת המבננים */
+  var ring = Math.max(Math.abs(bx - mid), Math.abs(by - mid)); /* המרחק מהמרכז בטבעות */
+  if (ring <= 1) { return DISTRICTS[0]; }           /* שתי הטבעות הפנימיות — מרכז עסקים */
+  if (bx < mid && by < mid) { return DISTRICTS[1]; }/* רבע צפון-מערבי — תעשייה */
+  if (bx >= mid && by >= mid) { return DISTRICTS[3]; } /* רבע דרום-מזרחי — רובע הפארקים */
+  return DISTRICTS[2];                              /* שאר הרבעים — מגורים */
+}
+
+/* השכונה של תא נתון — משמש לגוון המדרכות בציור המוקדם */
+function districtForCell(cx, cy) {
+  return districtFor(Math.floor(cx / BLOCK), Math.floor(cy / BLOCK)); /* המרה מתא למבנן */
+}
 
 /* המרת קואורדינטת תא לאינדקס במערך החד-ממדי */
 function cellIndex(cx, cy) { return cy * GRID + cx; }
@@ -710,7 +738,7 @@ function buildCity() {
       var y0 = by * BLOCK + 2;                      /* תא ההתחלה של פנים המבנן בציר Y */
       if (x0 + 5 >= GRID || y0 + 5 >= GRID) { continue; } /* מבנן חלקי בקצה המפה — מדלגים */
       var roll = rng();                             /* הגרלת סוג המבנן */
-      if (roll < 0.74) { makeBuildingBlock(rng, x0, y0); }      /* מבנן בניינים */
+      if (roll < 0.74) { makeBuildingBlock(rng, x0, y0, districtFor(bx, by)); } /* מבנן בניינים */
       else if (roll < 0.90) { makeParkBlock(rng, x0, y0); }     /* פארק */
       else { makePlazaBlock(x0, y0); }                          /* כיכר / חניון */
       lamps.push({ x: (bx * BLOCK + 1) * CELL, y: (by * BLOCK + 1) * CELL }); /* פנס בצומת שבפינת המבנן */
@@ -719,7 +747,7 @@ function buildCity() {
 }
 
 /* מבנן בניינים: טבעת מדרכה חיצונית ובתוכה גוש בנוי שמחולק לתת-מבנים */
-function makeBuildingBlock(rng, x0, y0) {
+function makeBuildingBlock(rng, x0, y0, dist) {
   var ix = x0 + 1;                                  /* פינת הגוש הבנוי (טבעת מדרכה ברוחב תא אחד) */
   var iy = y0 + 1;                                  /* אותו דבר בציר האנכי */
   var size = 4;                                     /* הגוש הבנוי הוא 4x4 תאים */
@@ -737,11 +765,26 @@ function makeBuildingBlock(rng, x0, y0) {
         cells[cellIndex(x, y)] = T_BUILD;           /* התא הופך לבניין */
       }
     }
+    var floors = dist.floors[0] + Math.floor(rng() * (dist.floors[1] - dist.floors[0] + 1)); /* גובה הבניין בקומות */
+    var signs = [];                                 /* שלטי הניאון שיתלו על הקירות */
+    var signCount = rng() < dist.signRate ? (rng() < 0.35 ? 2 : 1) : 0; /* כמה שלטים, לפי צפיפות השכונה */
+    for (var sg = 0; sg < signCount; sg++) {        /* יצירת כל שלט */
+      signs.push({
+        side: Math.floor(rng() * 4),                /* על איזה קיר הוא תלוי (0=צפון, 1=מזרח, 2=דרום, 3=מערב) */
+        t: 0.10 + rng() * 0.45,                     /* מיקום יחסי לאורך הקיר */
+        len: 0.18 + rng() * 0.26,                   /* אורך יחסי של השלט */
+        v: 0.30 + rng() * 0.22,                     /* גובה יחסי על הקיר */
+        color: pick(rng, NEON_COLORS)               /* צבע הניאון */
+      });
+    }
     buildings.push({                                /* רשומת ציור בפיקסלים */
-      x: r[0] * CELL, y: r[1] * CELL,               /* פינה שמאלית-עליונה */
-      w: r[2] * CELL, h: r[3] * CELL,               /* מידות */
-      color: pick(rng, BUILDING_COLORS),            /* צבע קירות */
-      lit: rng() < 0.55,                            /* האם לצייר חלונות מוארים */
+      x: r[0] * CELL, y: r[1] * CELL,               /* פינה שמאלית-עליונה של בסיס הבניין */
+      w: r[2] * CELL, h: r[3] * CELL,               /* מידות הבסיס */
+      color: pick(rng, dist.walls),                 /* צבע הקירות, לפי פלטת השכונה */
+      roofColor: dist.roof,                         /* צבע הגג */
+      floors: floors,                               /* גובה — קובע את עוצמת ההיטל ואת מספר שורות החלונות */
+      signs: signs,                                 /* שלטי הניאון */
+      dist: 0,                                      /* שדה עבודה: מרחק מהמצלמה, מתעדכן בכל פריים */
       seed: Math.floor(rng() * 100000)              /* seed לפרטי הגג והחלונות */
     });
   }
@@ -781,7 +824,8 @@ function makePlazaBlock(x0, y0) {
 var worldCanvas = null;            /* הקנבס שמחוץ למסך עם תמונת העיר */
 var miniCanvas = null;             /* קנבס מוקטן של העיר עבור המיני-מפה */
 
-/* ציור העיר כולה לקנבס מחוץ למסך */
+/* ציור הקרקע כולה לקנבס מחוץ למסך. הבניינים אינם כאן — הם מצוירים בכל פריים
+   ב-drawBuildings3D, כי אפקט הקירות תלוי במיקום המצלמה. */
 function renderWorldCanvas() {
   var c = document.createElement('canvas');         /* יצירת קנבס לא מחובר ל-DOM */
   c.width = WORLD;                                  /* רוחב בפיקסלים */
@@ -789,7 +833,7 @@ function renderWorldCanvas() {
   var g = c.getContext('2d');                       /* הקשר הציור */
   var rng = makeRng(CITY_SEED + 7);                 /* מחולל נפרד לפרטי הציור */
 
-  g.fillStyle = '#12141f';                          /* צבע האספלט הבסיסי */
+  g.fillStyle = ASPHALT;                            /* צבע האספלט הבסיסי */
   g.fillRect(0, 0, WORLD, WORLD);                   /* מילוי כל העולם */
 
   var cx, cy, px, py, t;                            /* משתני עזר ללולאת התאים */
@@ -798,8 +842,8 @@ function renderWorldCanvas() {
       t = cells[cellIndex(cx, cy)];                 /* סוג התא */
       px = cx * CELL;                               /* מיקום התא בפיקסלים */
       py = cy * CELL;
-      if (t === T_WALK) {                           /* מדרכה */
-        g.fillStyle = '#2a2f45';                    /* אפור-כחלחל */
+      if (t === T_WALK || t === T_BUILD) {          /* מדרכה, וגם הקרקע שמתחת לבניין */
+        g.fillStyle = districtForCell(cx, cy).walk; /* גוון המדרכה לפי השכונה */
         g.fillRect(px, py, CELL, CELL);             /* מילוי התא */
         g.strokeStyle = 'rgba(255,255,255,.05)';    /* קו הפרדה עדין בין אריחים */
         g.strokeRect(px + .5, py + .5, CELL - 1, CELL - 1);
@@ -818,10 +862,15 @@ function renderWorldCanvas() {
     }
   }
 
-  drawRoadMarkings(g);                              /* סימוני נתיבים על הכבישים */
+  drawRoadMarkings(g);                              /* קווי הפרדה מקווקווים */
+  drawCurbs(g);                                     /* אבני שפה בגבול כביש-מדרכה */
+  drawCrossings(g);                                 /* מעברי חצייה וקווי עצירה בצמתים */
+  drawLaneArrows(g, rng);                           /* חצי כיוון נתיב באמצע המקטעים */
+  drawRoadGrime(g, rng);                            /* מכסי ביוב וכתמים על האספלט */
 
-  for (var i = 0; i < buildings.length; i++) {      /* ציור כל הבניינים מעל הרקע */
-    drawBuilding(g, buildings[i]);
+  for (var i = 0; i < buildings.length; i++) {      /* יסוד כהה בטביעת הרגל של כל בניין */
+    g.fillStyle = '#0b0d15';                        /* כהה — כמעט תמיד מוסתר על ידי הבניין עצמו */
+    g.fillRect(buildings[i].x, buildings[i].y, buildings[i].w, buildings[i].h);
   }
   for (var j = 0; j < props.length; j++) {          /* ציור העצים בפארקים */
     drawTree(g, props[j]);
@@ -832,6 +881,114 @@ function renderWorldCanvas() {
 
   worldCanvas = c;                                  /* שמירת התוצאה לשימוש בלולאת הציור */
   renderMiniCanvas();                               /* בניית הגרסה המוקטנת למיני-מפה */
+}
+
+/* אבני שפה: קו בהיר בגבול בין הכביש למדרכה, קטוע בצמתים */
+function drawCurbs(g) {
+  var bands = Math.ceil(GRID / BLOCK);              /* מספר רצועות הכביש */
+  var road = 2 * CELL;                              /* רוחב רצועת כביש */
+  g.strokeStyle = 'rgba(196,210,240,.28)';          /* אפור בהיר מאופק */
+  g.lineWidth = 2;                                  /* עובי אבן השפה */
+  for (var b = 0; b < bands; b++) {                 /* מעבר על רצועות הכביש */
+    var e0 = b * BLOCK * CELL - 1;                  /* הקצה ה"לפני" של הרצועה */
+    var e1 = b * BLOCK * CELL + road + 1;           /* הקצה ה"אחרי" */
+    for (var seg = 0; seg < bands; seg++) {         /* קטע לכל מבנן, כדי לדלג על הצמתים */
+      var a = seg * BLOCK * CELL + road;            /* תחילת הקטע — מיד אחרי הצומת */
+      var z = Math.min((seg + 1) * BLOCK * CELL, WORLD); /* סוף הקטע — תחילת הצומת הבא */
+      if (z <= a) { continue; }                     /* קטע ריק בקצה המפה */
+      g.beginPath();
+      g.moveTo(e0, a); g.lineTo(e0, z);             /* אבן שפה אנכית, צד אחד */
+      g.moveTo(e1, a); g.lineTo(e1, z);             /* אבן שפה אנכית, צד שני */
+      g.moveTo(a, e0); g.lineTo(z, e0);             /* אבן שפה אופקית, צד אחד */
+      g.moveTo(a, e1); g.lineTo(z, e1);             /* אבן שפה אופקית, צד שני */
+      g.stroke();
+    }
+  }
+}
+
+/* מעברי חצייה וקווי עצירה בארבע הגישות לכל צומת */
+function drawCrossings(g) {
+  var bands = Math.ceil(GRID / BLOCK);              /* מספר הצמתים בכל ציר */
+  var road = 2 * CELL;                              /* רוחב הכביש */
+  var depth = 14;                                   /* עומק מעבר החצייה */
+  var gap = 5;                                      /* מרווח בין הצומת למעבר */
+  for (var bx = 0; bx < bands; bx++) {              /* מעבר על צמתים בציר X */
+    for (var by = 0; by < bands; by++) {            /* ובציר Y */
+      var ix = bx * BLOCK * CELL;                   /* פינת הצומת */
+      var iy = by * BLOCK * CELL;
+      if (ix + road > WORLD || iy + road > WORLD) { continue; } /* צומת חלקי בקצה */
+      zebra(g, ix, iy - gap - depth, road, depth, true);            /* גישה מצפון */
+      zebra(g, ix, iy + road + gap, road, depth, true);             /* גישה מדרום */
+      zebra(g, ix - gap - depth, iy, depth, road, false);           /* גישה ממערב */
+      zebra(g, ix + road + gap, iy, depth, road, false);            /* גישה ממזרח */
+    }
+  }
+}
+
+/* ציור מעבר חצייה בודד: פסים לבנים במקביל לכיוון הנסיעה, וקו עצירה לפניו */
+function zebra(g, x, y, w, h, vertical) {
+  if (x < 0 || y < 0 || x + w > WORLD || y + h > WORLD) { return; } /* מחוץ למפה */
+  g.fillStyle = 'rgba(226,234,255,.26)';            /* לבן מעומעם — צבע שחוק על אספלט */
+  var bars = 6;                                     /* מספר הפסים */
+  var i;                                            /* משתנה לולאה */
+  if (vertical) {                                   /* מעבר על כביש אנכי — פסים אנכיים */
+    var bw = w / (bars * 2 - 1);                    /* רוחב פס, עם מרווח שווה בין הפסים */
+    for (i = 0; i < bars; i++) { g.fillRect(x + i * bw * 2, y, bw, h); }
+  } else {                                          /* מעבר על כביש אופקי — פסים אופקיים */
+    var bh = h / (bars * 2 - 1);                    /* גובה פס */
+    for (i = 0; i < bars; i++) { g.fillRect(x, y + i * bh * 2, w, bh); }
+  }
+}
+
+/* חצי כיוון נתיב באמצע מקטעי הכביש — שני נתיבים בכל רצועה, נסיעה בצד ימין */
+function drawLaneArrows(g, rng) {
+  var bands = Math.ceil(GRID / BLOCK);              /* מספר הרצועות */
+  for (var b = 0; b < bands; b++) {                 /* הרצועה שעליה מציירים */
+    var lane1 = b * BLOCK * CELL + 24;              /* מרכז הנתיב הראשון */
+    var lane2 = b * BLOCK * CELL + 72;              /* מרכז הנתיב השני */
+    for (var seg = 0; seg < bands; seg++) {         /* מרכז כל מקטע בין צמתים */
+      if (rng() < 0.45) { continue; }               /* לא בכל מקטע — כדי שלא ייראה מכני */
+      var mid = seg * BLOCK * CELL + BLOCK * CELL / 2 + CELL; /* מרכז המקטע */
+      if (mid > WORLD - 40) { continue; }           /* קרוב מדי לקצה המפה */
+      laneArrow(g, lane1, mid, 0, -1);              /* נתיב מערבי — נסיעה צפונה */
+      laneArrow(g, lane2, mid, 0, 1);               /* נתיב מזרחי — נסיעה דרומה */
+      laneArrow(g, mid, lane1, -1, 0);              /* נתיב צפוני — נסיעה מערבה */
+      laneArrow(g, mid, lane2, 1, 0);               /* נתיב דרומי — נסיעה מזרחה */
+    }
+  }
+}
+
+/* ציור חץ נתיב בודד בכיוון (dx,dy) */
+function laneArrow(g, x, y, dx, dy) {
+  g.save();                                         /* שמירה לפני הסיבוב */
+  g.translate(x, y);                                /* מעבר למרכז החץ */
+  g.rotate(Math.atan2(dy, dx));                     /* סיבוב לכיוון הנסיעה */
+  g.fillStyle = 'rgba(230,238,255,.30)';            /* לבן שחוק */
+  g.fillRect(-14, -2, 20, 4);                       /* גוף החץ */
+  g.beginPath();
+  g.moveTo(16, 0); g.lineTo(4, -8); g.lineTo(4, 8); /* ראש החץ */
+  g.closePath(); g.fill();
+  g.restore();                                      /* חזרה למערכת הצירים המקורית */
+}
+
+/* מכסי ביוב וכתמי שמן — שוברים את האחידות של האספלט */
+function drawRoadGrime(g, rng) {
+  var count = 260;                                  /* כמה פרטים לפזר */
+  for (var i = 0; i < count; i++) {                 /* פיזור אקראי על המפה */
+    var cx = Math.floor(rng() * GRID);              /* תא אקראי */
+    var cy = Math.floor(rng() * GRID);
+    if (cells[cellIndex(cx, cy)] !== T_ROAD) { continue; } /* רק על כביש */
+    var x = cx * CELL + rng() * CELL;               /* מיקום מדויק בתוך התא */
+    var y = cy * CELL + rng() * CELL;
+    if (rng() < 0.35) {                             /* מכסה ביוב */
+      g.fillStyle = 'rgba(255,255,255,.06)';
+      g.beginPath(); g.arc(x, y, 6, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1; g.stroke();
+    } else {                                        /* כתם כהה */
+      g.fillStyle = 'rgba(0,0,0,.20)';
+      g.beginPath(); g.ellipse(x, y, 5 + rng() * 12, 4 + rng() * 8, rng() * Math.PI, 0, Math.PI * 2); g.fill();
+    }
+  }
 }
 
 /* ציור קו הפרדה מקווקו במרכז כל רצועת כביש, ללא הצמתים */
@@ -850,7 +1007,7 @@ function drawRoadMarkings(g) {
   }
   g.setLineDash([]);                                /* ביטול המקווקו להמשך הציור */
 
-  g.fillStyle = '#12141f';                          /* צבע האספלט — לניקוי הצמתים */
+  g.fillStyle = ASPHALT;                            /* צבע האספלט — לניקוי הצמתים */
   for (b = 0; b < bands; b++) {                     /* מעבר על צמתים בציר האנכי */
     for (var b2 = 0; b2 < bands; b2++) {            /* ובציר האופקי */
       g.fillRect(b * BLOCK * CELL, b2 * BLOCK * CELL, CELL * 2, CELL * 2); /* מחיקת הקווים בצומת */
@@ -858,42 +1015,158 @@ function drawRoadMarkings(g) {
   }
 }
 
-/* ציור בניין בודד עם אפקט תלת-ממד מדומה: צל, קירות, גג וחלונות */
-function drawBuilding(g, b) {
-  g.fillStyle = 'rgba(0,0,0,.45)';                  /* צל מוטל */
-  g.fillRect(b.x + 7, b.y + 7, b.w, b.h);           /* הצל מוסט מעט מהמבנה */
+/* ============================================================================
+   ציור הבניינים בתלת-ממד מדומה — החתימה הוויזואלית של GTA2.
+   כל בניין מוטל החוצה ממרכז המסך: הגג "גדל" ביחס לבסיס לפי גובה הבניין,
+   וכך נחשפים קירות הצד. ככל שהבניין רחוק יותר ממרכז המסך — ההטיה חזקה יותר.
+   לכן הבניינים אינם יכולים להיות בציור המוקדם ומצוירים בכל פריים.
+   ============================================================================ */
 
-  g.fillStyle = b.color;                            /* צבע הקירות */
-  g.fillRect(b.x, b.y, b.w, b.h);                   /* גוף הבניין */
+var BUILD_PROJ = 0.044;            /* כמה כל קומה מרחיבה את הגג ביחס לבסיס */
+var WALL_SHADE = [26, -10, -34, 8];/* הבהרה/הכהיה לכל קיר: צפון, מזרח, דרום, מערב */
+var NORMALS = [[0, -1], [1, 0], [0, 1], [-1, 0]]; /* הנורמל היוצא של כל קיר */
+var visibleList = [];              /* מערך עבודה לבניינים הנראים — ממוחזר בין פריימים */
 
-  var inset = 7;                                    /* מרחק הגג מקצה הקירות (יוצר תחושת גובה) */
-  g.fillStyle = shade(b.color, 22);                 /* הגג בהיר מעט מהקירות */
-  g.fillRect(b.x + inset, b.y + inset, b.w - inset * 2, b.h - inset * 2);
+/* ציור כל הבניינים הנראים, מהרחוק אל הקרוב (אלגוריתם הצייר) */
+function drawBuildings3D(ccx, ccy, camX, camY, sw, sh) {
+  visibleList.length = 0;                                     /* איפוס בלי הקצאת מערך חדש */
+  var pad = 340;                                              /* שוליים סביב החלון — בניין מחוץ למסך עדיין מוטל פנימה */
+  var x0 = camX - pad, x1 = camX + sw + pad;                  /* גבולות החיתוך בציר X */
+  var y0 = camY - pad, y1 = camY + sh + pad;                  /* ובציר Y */
+  for (var i = 0; i < buildings.length; i++) {                /* חיתוך לחלון הנראה */
+    var b = buildings[i];                                     /* הבניין הנבדק */
+    if (b.x + b.w < x0 || b.x > x1) { continue; }             /* מחוץ לחלון אופקית */
+    if (b.y + b.h < y0 || b.y > y1) { continue; }             /* מחוץ לחלון אנכית */
+    b.dist = Math.abs(b.x + b.w / 2 - ccx) + Math.abs(b.y + b.h / 2 - ccy); /* מרחק מנקודת ההיטל */
+    visibleList.push(b);                                      /* נכנס לרשימת הציור */
+  }
+  visibleList.sort(function (p, q) { return q.dist - p.dist; }); /* רחוקים קודם, קרובים אחרונים */
+  for (var j = 0; j < visibleList.length; j++) {              /* ציור לפי הסדר */
+    drawBuilding3D(visibleList[j], ccx, ccy);
+  }
+}
 
-  g.strokeStyle = 'rgba(0,0,0,.5)';                 /* קו מתאר כהה להפרדה מהרקע */
-  g.lineWidth = 1;
-  g.strokeRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1);
+/* ציור בניין בודד: צל, קירות גלויים עם חלונות ושלטים, ואז הגג מעליהם */
+function drawBuilding3D(b, ccx, ccy) {
+  var k = 1 + b.floors * BUILD_PROJ;                          /* מקדם ההיטל לפי מספר הקומות */
+  var rx = ccx + (b.x - ccx) * k;                             /* פינת הגג — הרחבה סביב מרכז המסך */
+  var ry = ccy + (b.y - ccy) * k;
+  var rw = b.w * k;                                           /* הגג גדול מהבסיס באותו יחס */
+  var rh = b.h * k;
 
-  var rng = makeRng(b.seed);                        /* מחולל ייעודי לפרטי הגג */
-  g.fillStyle = shade(b.color, -14);                /* מתקני גג כהים */
-  var units = 1 + Math.floor(rng() * 3);            /* בין מתקן אחד לשלושה */
-  for (var i = 0; i < units; i++) {                 /* ציור מתקני הגג */
-    var uw = 14 + rng() * 22;                       /* רוחב המתקן */
-    var uh = 12 + rng() * 20;                       /* גובה המתקן */
-    var ux = b.x + inset + 6 + rng() * Math.max(1, b.w - inset * 2 - uw - 12); /* מיקום בתוך הגג */
-    var uy = b.y + inset + 6 + rng() * Math.max(1, b.h - inset * 2 - uh - 12);
-    g.fillRect(ux, uy, uw, uh);                     /* המתקן עצמו */
+  ctx.fillStyle = 'rgba(0,0,0,.42)';                          /* צל מוטל על הקרקע */
+  ctx.beginPath();                                            /* נתיב אחד לשני המלבנים */
+  ctx.rect(b.x + 10, b.y + 12, b.w, b.h);                     /* צל הבסיס */
+  ctx.rect(rx + 10, ry + 12, rw, rh);                         /* צל הגג */
+  ctx.fill();                                                 /* מילוי כאיחוד — בלי הכפלת כהות */
+
+  var base = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]]; /* קודקודי הבסיס */
+  var roof = [[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]];             /* קודקודי הגג */
+
+  for (var s = 0; s < 4; s++) {                               /* מעבר על ארבעת הקירות */
+    var p0 = base[s], p1 = base[(s + 1) % 4];                 /* צלע הבסיס של הקיר */
+    var mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2;   /* אמצע הצלע */
+    var n = NORMALS[s];                                       /* הנורמל היוצא של הצלע */
+    /* המצלמה נמצאת מעל מרכז המסך, ולכן נראים הקירות שפונים אליו. הם ממלאים
+       את הרווח שנוצר בין הבסיס לגג; הקירות הרחוקים מוסתרים מאחורי הגג. */
+    if ((mx - ccx) * n[0] + (my - ccy) * n[1] >= 0) { continue; }
+    var quad = [p0, p1, roof[(s + 1) % 4], roof[s]];          /* המרובע: בסיס → גג */
+    ctx.fillStyle = shade(b.color, WALL_SHADE[s]);            /* הצללה לפי כיוון הקיר */
+    fillQuad(quad);                                           /* גוף הקיר */
+    drawWallWindows(quad, b, s);                              /* חלונות */
+    drawWallSigns(quad, b, s);                                /* שלטי ניאון */
   }
 
-  if (b.lit) {                                      /* בניינים חלקם עם חלונות מוארים */
-    g.fillStyle = 'rgba(255,210,63,.5)';            /* אור צהבהב חמים */
-    for (var w = 0; w < 8; w++) {                   /* שמונה חלונות אקראיים על הטבעת החיצונית */
-      var side = Math.floor(rng() * 4);             /* באיזה צד של הבניין */
-      var t = rng();                                /* מיקום יחסי לאורך הצד */
-      var wx = side === 0 ? b.x + 2 : side === 1 ? b.x + b.w - 6 : b.x + 4 + t * (b.w - 12);
-      var wy = side === 0 || side === 1 ? b.y + 4 + t * (b.h - 12) : (side === 2 ? b.y + 2 : b.y + b.h - 6);
-      g.fillRect(wx, wy, 4, 4);                     /* ריבוע קטן שמדמה חלון */
+  ctx.fillStyle = b.roofColor;                                /* משטח הגג */
+  ctx.fillRect(rx, ry, rw, rh);
+  ctx.strokeStyle = 'rgba(0,0,0,.55)';                        /* קו מתאר להפרדה מהקירות */
+  ctx.lineWidth = 1;
+  ctx.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
+
+  var rng = makeRng(b.seed);                                  /* מחולל דטרמיניסטי — אותו גג בכל פריים */
+  ctx.fillStyle = shade(b.roofColor, 20);                     /* מתקני גג, בהירים מעט מהגג */
+  var units = 1 + Math.floor(rng() * 3);                      /* בין מתקן אחד לשלושה */
+  for (var u = 0; u < units; u++) {                           /* ציור המתקנים */
+    var uw = 16 + rng() * 26;                                 /* רוחב */
+    var uh = 14 + rng() * 22;                                 /* גובה */
+    var ux = rx + 8 + rng() * Math.max(1, rw - uw - 16);      /* מיקום בתוך הגג */
+    var uy = ry + 8 + rng() * Math.max(1, rh - uh - 16);
+    ctx.fillRect(ux, uy, uw, uh);                             /* המתקן */
+  }
+}
+
+/* מילוי מרובע כלשהו (ארבעה קודקודים בקואורדינטות עולם) */
+function fillQuad(q) {
+  ctx.beginPath();                                            /* נתיב חדש */
+  ctx.moveTo(q[0][0], q[0][1]);                               /* קודקוד ראשון */
+  ctx.lineTo(q[1][0], q[1][1]);                               /* שני */
+  ctx.lineTo(q[2][0], q[2][1]);                               /* שלישי */
+  ctx.lineTo(q[3][0], q[3][1]);                               /* רביעי */
+  ctx.closePath();
+  ctx.fill();
+}
+
+/* מילוי מרובע מוקטן או מוגדל סביב מרכזו — משמש להילת הניאון */
+function fillQuadScaled(q, f) {
+  var cx = (q[0][0] + q[1][0] + q[2][0] + q[3][0]) / 4;       /* מרכז המרובע */
+  var cy = (q[0][1] + q[1][1] + q[2][1] + q[3][1]) / 4;
+  ctx.beginPath();
+  for (var i = 0; i < 4; i++) {                               /* כל קודקוד מוזז ביחס למרכז */
+    var x = cx + (q[i][0] - cx) * f;
+    var y = cy + (q[i][1] - cy) * f;
+    if (i === 0) { ctx.moveTo(x, y); } else { ctx.lineTo(x, y); }
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+/* נקודה בתוך מרובע לפי קואורדינטות יחסיות: u לאורך הקיר, v מהבסיס אל הגג */
+function quadPoint(q, u, v) {
+  var bx = q[0][0] + (q[1][0] - q[0][0]) * u;                 /* נקודה על צלע הבסיס */
+  var by = q[0][1] + (q[1][1] - q[0][1]) * u;
+  var tx = q[3][0] + (q[2][0] - q[3][0]) * u;                 /* הנקודה המקבילה על צלע הגג */
+  var ty = q[3][1] + (q[2][1] - q[3][1]) * u;
+  return [bx + (tx - bx) * v, by + (ty - by) * v];            /* אינטרפולציה בין השתיים */
+}
+
+/* חלונות על קיר: שורה לכל קומה, חלקם מוארים */
+function drawWallWindows(q, b, side) {
+  var edge = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]);/* אורך הקיר בפיקסלים */
+  if (edge < 26) { return; }                                  /* קיר צר מדי לחלונות */
+  var cols = Math.max(1, Math.round(edge / 30));              /* מספר עמודות חלונות */
+  var rows = clamp(b.floors, 1, 6);                           /* שורה לכל קומה, עד שש */
+  var rng = makeRng(b.seed + side * 977);                     /* דטרמיניסטי — אין הבהוב בין פריימים */
+  var band = 0.66 / rows;                                     /* גובה יחסי של כל שורה */
+  for (var r = 0; r < rows; r++) {                            /* מעבר על השורות */
+    var v0 = 0.20 + r * band;                                 /* תחתית החלון */
+    var v1 = v0 + band * 0.58;                                /* ראש החלון */
+    for (var c = 0; c < cols; c++) {                          /* מעבר על העמודות */
+      var roll = rng();                                       /* הגרלה אחת לכל חלון */
+      if (roll < 0.30) { continue; }                          /* חלק מהחלונות אינם מצוירים */
+      var u0 = (c + 0.26) / cols;                             /* שפה שמאלית של החלון */
+      var u1 = (c + 0.74) / cols;                             /* שפה ימנית */
+      ctx.fillStyle = roll < 0.62 ? 'rgba(255,214,120,.72)' : 'rgba(150,200,255,.26)'; /* מואר או כבוי */
+      fillQuad([quadPoint(q, u0, v0), quadPoint(q, u1, v0), quadPoint(q, u1, v1), quadPoint(q, u0, v1)]);
     }
+  }
+}
+
+/* שלטי ניאון על הקיר: הילה רכה סביב לוח צבעוני עם ליבה בהירה */
+function drawWallSigns(q, b, side) {
+  for (var i = 0; i < b.signs.length; i++) {                  /* מעבר על שלטי הבניין */
+    var sg = b.signs[i];                                      /* השלט הנוכחי */
+    if (sg.side !== side) { continue; }                       /* לא על הקיר הזה */
+    var u0 = sg.t;                                            /* התחלה לאורך הקיר */
+    var u1 = Math.min(0.94, sg.t + sg.len);                   /* סוף, בלי לגלוש מהקיר */
+    var v0 = sg.v;                                            /* תחתית השלט */
+    var v1 = Math.min(0.92, sg.v + 0.24);                     /* ראש השלט */
+    var quad = [quadPoint(q, u0, v0), quadPoint(q, u1, v0), quadPoint(q, u1, v1), quadPoint(q, u0, v1)];
+    ctx.fillStyle = sg.color;                                 /* צבע הניאון */
+    ctx.globalAlpha = 0.14; fillQuadScaled(quad, 2.4);        /* הילה חיצונית רחבה */
+    ctx.globalAlpha = 0.30; fillQuadScaled(quad, 1.6);        /* הילה פנימית */
+    ctx.globalAlpha = 1;    fillQuad(quad);                   /* גוף השלט */
+    ctx.fillStyle = 'rgba(255,255,255,.55)';                  /* ליבה לבנה — תחושת נורה */
+    fillQuadScaled(quad, 0.45);
   }
 }
 
@@ -1257,14 +1530,22 @@ function render(t) {
   var offX = viewW > WORLD ? (viewW - WORLD) / 2 : 0;         /* מרכוז אם החלון גדול מהעולם */
   var offY = viewH > WORLD ? (viewH - WORLD) / 2 : 0;
 
+  var ccx = p.x;                                              /* נקודת ההיטל: המצלמה נמצאת מעל השחקן */
+  var ccy = p.y;                                              /* כך הבניינים לעולם לא יסתירו אותו, גם בקצה המפה */
+
   ctx.save();                                                 /* שמירת מצב לפני מעבר לקואורדינטות עולם */
   ctx.translate(offX - camX, offY - camY);                    /* הזזת מערכת הצירים למיקום המצלמה */
-  ctx.drawImage(worldCanvas, camX, camY, sw, sh, camX, camY, sw, sh); /* העתקת החלון הנראה בלבד */
+  ctx.drawImage(worldCanvas, camX, camY, sw, sh, camX, camY, sw, sh); /* הקרקע — מהציור המוקדם */
 
-  for (var i = 0; i < marks.length; i++) {                    /* ציור סימני השאלה שלא נאספו */
-    if (!marks[i].taken) { drawMark(marks[i], t); }
+  for (var i = 0; i < marks.length; i++) {                    /* סימני השאלה — לפני הבניינים, כדי שייחסמו כמותם */
+    var mk = marks[i];                                        /* הסימן הנוכחי */
+    if (mk.taken) { continue; }                               /* כבר נאסף */
+    if (mk.x < camX - 60 || mk.x > camX + sw + 60) { continue; } /* מחוץ למסך אופקית — חוסך יצירת הילה */
+    if (mk.y < camY - 60 || mk.y > camY + sh + 60) { continue; } /* מחוץ למסך אנכית */
+    drawMark(mk, t);                                          /* ציור הסימן */
   }
-  drawCar();                                                  /* הרכב מצויר תמיד — גם כשיצאנו ממנו */
+  drawBuildings3D(ccx, ccy, camX, camY, sw, sh);              /* הבניינים בתלת-ממד מדומה, בכל פריים */
+  drawCar(ccx, ccy);                                          /* הרכב מצויר תמיד — גם כשיצאנו ממנו */
   if (!inCar) { drawWalker(); }                               /* הדמות מצוירת רק כשהיא בחוץ */
   drawCompass(p, t);                                          /* חץ שמצביע לסימן הקרוב */
   ctx.restore();                                              /* חזרה לקואורדינטות מסך */
@@ -1300,27 +1581,62 @@ function drawMark(m, t) {
   ctx.fillText('?', m.x, m.y + 1);                            /* ציור התו */
 }
 
-/* ציור הרכב: צל, גוף, שמשה, פנסים */
-function drawCar() {
+/* ציור הרכב בסגנון GTA2: צל, גלגלים בולטים, גוף, גג מוטה, שמשות ופנסים.
+   הגג מוסט מעט החוצה ממרכז המסך — אותו עיקרון היטל שמופעל על הבניינים. */
+function drawCar(ccx, ccy) {
+  var dx = car.x - ccx, dy = car.y - ccy;                     /* וקטור מהמרכז אל הרכב */
+  var d = Math.hypot(dx, dy) || 1;                            /* אורכו, עם הגנה מחלוקה באפס */
+  var mag = Math.min(d * 0.030, 5.5);                         /* עוצמת ההטיה, מוגבלת לערך קטן */
+  var ox = (dx / d) * mag, oy = (dy / d) * mag;               /* ההיסט בקואורדינטות עולם */
+  var ca = Math.cos(car.angle), sa = Math.sin(car.angle);     /* להמרת ההיסט למערכת הצירים של הרכב */
+  var lx = ox * ca + oy * sa;                                 /* רכיב ההיסט לאורך הרכב */
+  var ly = -ox * sa + oy * ca;                                /* רכיב ההיסט לרוחב הרכב */
+
   ctx.save();                                                 /* שמירת מצב לפני סיבוב לפי כיוון הנסיעה */
   ctx.translate(car.x, car.y);                                /* מעבר למרכז הרכב */
   ctx.rotate(car.angle);                                      /* סיבוב לפי זווית הנסיעה */
 
   ctx.fillStyle = 'rgba(0,0,0,.45)';                          /* צל מתחת לרכב */
-  roundRect(ctx, -19, -11, 40, 23, 5); ctx.fill();
+  roundRect(ctx, -21 + 3, -12 + 4, 44, 24, 6); ctx.fill();
 
-  ctx.fillStyle = '#e94b5a';                                  /* גוף הרכב באדום בולט */
-  roundRect(ctx, -21, -13, 42, 26, 6); ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 1.5; ctx.stroke(); /* מתאר */
+  ctx.fillStyle = '#0d0f18';                                  /* גלגלים כהים, בולטים מקווי הגוף */
+  roundRect(ctx, -16, -14, 11, 5, 2); ctx.fill();             /* אחורי שמאל */
+  roundRect(ctx, -16, 9, 11, 5, 2); ctx.fill();               /* אחורי ימין */
+  roundRect(ctx, 7, -14, 11, 5, 2); ctx.fill();               /* קדמי שמאל */
+  roundRect(ctx, 7, 9, 11, 5, 2); ctx.fill();                 /* קדמי ימין */
 
-  ctx.fillStyle = '#2a3350';                                  /* שמשה קדמית כהה */
-  roundRect(ctx, 2, -10, 11, 20, 3); ctx.fill();
-  ctx.fillStyle = '#3b466b';                                  /* גג/שמשה אחורית */
-  roundRect(ctx, -13, -9, 11, 18, 3); ctx.fill();
+  ctx.fillStyle = '#d8323f';                                  /* גוף הרכב */
+  roundRect(ctx, -22, -12, 45, 24, 7); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.lineWidth = 1.5; ctx.stroke(); /* מתאר */
 
-  ctx.fillStyle = 'rgba(255,240,190,.95)';                    /* פנסים קדמיים */
-  ctx.fillRect(19, -10, 3, 5); ctx.fillRect(19, 5, 3, 5);
+  ctx.fillStyle = 'rgba(255,255,255,.10)';                    /* הארה עדינה על המכסה הקדמי */
+  roundRect(ctx, 8, -10, 13, 20, 4); ctx.fill();
+
+  ctx.fillStyle = '#b3222d';                                  /* תא הנוסעים, מוסט לפי ההיטל */
+  roundRect(ctx, -12 + lx, -10 + ly, 22, 20, 5); ctx.fill();
+
+  ctx.fillStyle = '#1b2540';                                  /* שמשה קדמית */
+  roundRect(ctx, 4 + lx, -8 + ly, 7, 16, 3); ctx.fill();
+  ctx.fillStyle = '#141c33';                                  /* חלון אחורי */
+  roundRect(ctx, -12 + lx, -8 + ly, 6, 16, 3); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.07)';                    /* השתקפות על הגג */
+  roundRect(ctx, -5 + lx, -7 + ly, 9, 6, 2); ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,244,200,.95)';                    /* פנסים קדמיים */
+  roundRect(ctx, 20, -10, 4, 6, 1.5); ctx.fill();
+  roundRect(ctx, 20, 4, 4, 6, 1.5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,70,70,.9)';                       /* פנסים אחוריים */
+  roundRect(ctx, -23, -10, 3, 5, 1.5); ctx.fill();
+  roundRect(ctx, -23, 5, 3, 5, 1.5); ctx.fill();
   ctx.restore();                                              /* חזרה לקואורדינטות עולם */
+
+  ctx.fillStyle = 'rgba(255,238,180,.045)';                   /* אלומת אור קדמית עדינה */
+  ctx.save();
+  ctx.translate(car.x, car.y); ctx.rotate(car.angle);
+  ctx.beginPath();
+  ctx.moveTo(22, -9); ctx.lineTo(78, -30); ctx.lineTo(78, 30); ctx.lineTo(22, 9);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 /* ציור הדמות ברגל: צל, גוף ומבט לכיוון ההליכה */
