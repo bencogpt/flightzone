@@ -452,7 +452,8 @@ var CONFIG = {
   markCount: 10,                                        /* כמה סימנים לפזר במפה (מוגבל למספר השאלות הקיימות) */
   pointsCorrect: 100,                                   /* ניקוד על תשובה נכונה */
   pointsWrong: 0,                                       /* ניקוד על תשובה שגויה */
-  showExplanation: true                                 /* האם להציג את שדה ההסבר אחרי המענה */
+  showExplanation: true,                                /* האם להציג את שדה ההסבר אחרי המענה */
+  shuffleAnswers: true                                  /* ערבוב סדר התשובות בכל הצגה — כדי שהתשובה הנכונה לא תהיה תמיד באותו מקום */
 };
 
 /* ----------------------------------------------------------------------------
@@ -1466,7 +1467,7 @@ function updateHint() {
    ============================================================================ */
 
 /* מצב המודאל הפעיל */
-var quiz = { q: null, mark: null, answered: false };
+var quiz = { q: null, mark: null, answered: false, order: [] };
 
 /* חותמת זמן לעצירת שעון המשחק בזמן מודאל או השהיה */
 var clockStamp = 0;
@@ -1490,7 +1491,7 @@ function releaseKeys() {
 function openQuestion(mark) {
   var q = questions[mark.qIndex];                             /* השאלה המשויכת לסימן */
   if (!q) { return; }                                         /* הגנה: אין שאלה — ממשיכים לשחק */
-  quiz = { q: q, mark: mark, answered: false };               /* אתחול מצב המודאל */
+  quiz = { q: q, mark: mark, answered: false, order: buildAnswerOrder(q.answers.length) }; /* אתחול מצב המודאל, כולל סדר תצוגה מעורבב */
   state.mode = 'quiz';                                        /* המשחק מושהה בזמן השאלה */
   freezeClock();                                              /* עצירת שעון המשחק */
   releaseKeys();                                              /* שחרור מקשים תקועים */
@@ -1501,8 +1502,8 @@ function openQuestion(mark) {
 
   var box = $('quizAnswers');                                 /* מכל התשובות */
   clearEl(box);                                               /* ניקוי תשובות קודמות */
-  for (var i = 0; i < q.answers.length; i++) {                /* בניית כפתור לכל תשובה */
-    box.appendChild(buildAnswerButton(q.answers[i], i));      /* הוספה למכל */
+  for (var i = 0; i < quiz.order.length; i++) {                /* בניית כפתור לכל מיקום תצוגה */
+    box.appendChild(buildAnswerButton(q.answers[quiz.order[i]], i)); /* הטקסט לפי סדר התצוגה המעורבב */
   }
 
   $('quizFeedback').hidden = true;                            /* הסתרת משוב קודם */
@@ -1512,7 +1513,30 @@ function openQuestion(mark) {
   if (first) { first.focus(); }                               /* מיקוד ראשוני לניווט מקלדת */
 }
 
-/* יצירת כפתור תשובה בודד. הטקסט נכנס דרך textContent — הגנת XSS. */
+/* בניית סדר תצוגת התשובות: מערך שממפה מיקום על המסך אל האינדקס המקורי במאגר.
+   הערבוב מונע מצב שבו התשובה הנכונה נמצאת תמיד באותו מקום ברשימה.
+   כיבוי הערבוב: CONFIG.shuffleAnswers = false — אז הסדר נשאר כפי שנכתב. */
+function buildAnswerOrder(count) {
+  var order = [];                                             /* המערך המוחזר */
+  for (var i = 0; i < count; i++) { order.push(i); }          /* סדר מקורי 0..n-1 */
+  if (!CONFIG.shuffleAnswers) { return order; }               /* הערבוב כבוי — מחזירים כמו שהוא */
+  for (var j = order.length - 1; j > 0; j--) {                /* ערבוב פישר-ייטס */
+    var r = Math.floor(Math.random() * (j + 1));              /* מיקום אקראי בטווח שנותר */
+    var tmp = order[j]; order[j] = order[r]; order[r] = tmp;  /* החלפה */
+  }
+  return order;                                               /* סדר התצוגה לשאלה הזו */
+}
+
+/* איתור מיקום התצוגה של אינדקס מקורי נתון (indexOf ידני, לתאימות רחבה) */
+function displayPosOf(originalIndex) {
+  for (var i = 0; i < quiz.order.length; i++) {               /* סריקת סדר התצוגה */
+    if (quiz.order[i] === originalIndex) { return i; }        /* נמצא — מחזירים את המיקום */
+  }
+  return -1;                                                  /* לא נמצא (לא אמור לקרות) */
+}
+
+/* יצירת כפתור תשובה בודד. הטקסט נכנס דרך textContent — הגנת XSS.
+   הפרמטר index הוא מיקום התצוגה, לא האינדקס המקורי במאגר. */
 function buildAnswerButton(text, index) {
   var btn = document.createElement('button');                 /* אלמנט הכפתור */
   btn.type = 'button';                                        /* לא כפתור שליחה של טופס */
@@ -1533,13 +1557,15 @@ function buildAnswerButton(text, index) {
 function answerQuestion(index) {
   if (quiz.answered || !quiz.q) { return; }                   /* מונע מענה כפול */
   quiz.answered = true;                                       /* נעילת המודאל */
-  var isRight = index === quiz.q.correct;                     /* האם התשובה נכונה */
+  var chosen = quiz.order[index];                             /* תרגום מיקום התצוגה לאינדקס המקורי */
+  var isRight = chosen === quiz.q.correct;                    /* האם התשובה נכונה */
+  var correctPos = displayPosOf(quiz.q.correct);              /* היכן התשובה הנכונה מוצגת על המסך */
 
   var btns = $('quizAnswers').children;                       /* כל כפתורי התשובה */
   for (var i = 0; i < btns.length; i++) {                     /* סימון וניטרול */
     btns[i].disabled = true;                                  /* אי אפשר לשנות תשובה */
-    if (i === quiz.q.correct) { btns[i].classList.add('correct'); }   /* הדגשת הנכונה */
-    else if (i === index) { btns[i].classList.add('wrong'); }         /* הדגשת הבחירה השגויה */
+    if (i === correctPos) { btns[i].classList.add('correct'); }      /* הדגשת הנכונה במיקום שבו הוצגה */
+    else if (i === index) { btns[i].classList.add('wrong'); }        /* הדגשת הבחירה השגויה */
   }
 
   if (isRight) {                                              /* עדכון ניקוד ומונים */
@@ -1575,7 +1601,7 @@ function answerQuestion(index) {
   state.results.push({                                        /* תיעוד לסיכום בסוף המשחק */
     q: quiz.q.q,                                              /* נוסח השאלה */
     right: quiz.q.answers[quiz.q.correct],                    /* התשובה הנכונה */
-    chosen: quiz.q.answers[index],                            /* מה שנבחר בפועל */
+    chosen: quiz.q.answers[chosen],                           /* מה שנבחר בפועל (לפי האינדקס המקורי) */
     ok: isRight                                               /* האם נכון */
   });
 
@@ -1586,7 +1612,7 @@ function answerQuestion(index) {
 /* סגירת המודאל וחזרה למשחק, או מעבר למסך הסיום אם נאספו כל הסימנים */
 function closeQuestion() {
   $('quizModal').hidden = true;                               /* הסתרת המודאל */
-  quiz = { q: null, mark: null, answered: false };            /* ניקוי המצב */
+  quiz = { q: null, mark: null, answered: false, order: [] }; /* ניקוי המצב */
   if (state.collected >= marks.length) { endGame(); return; } /* סיימנו את כל הסימנים */
   state.mode = 'play';                                        /* חזרה למשחק */
   unfreezeClock();                                            /* חידוש שעון המשחק */
