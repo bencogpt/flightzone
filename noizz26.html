@@ -148,6 +148,11 @@ kbd{background:var(--panel-3);border:1px solid var(--line);border-bottom-width:2
 .btn:hover{border-color:var(--neon)}
 /* כפתור ראשי בולט */
 .btn.primary{background:linear-gradient(95deg,var(--neon),#4aa8ff);color:#04121a;border-color:transparent}
+/* כפתור מנוטרל — למשל בזמן נעילה זמנית של מסך הסיסמה */
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:disabled:hover{border-color:var(--line)}
+/* שדה קלט מנוטרל */
+.field input:disabled{opacity:.5}
 /* כפתור מסוכן (מחיקה/איפוס) */
 .btn.danger{color:var(--bad);border-color:rgba(255,84,112,.4)}
 /* כפתור קטן לשימוש בתוך רשימות */
@@ -228,7 +233,7 @@ kbd{background:var(--panel-3);border:1px solid var(--line);border-bottom-width:2
 /* תווית שדה */
 .field label{font-size:13px;color:var(--ink-2);font-weight:700}
 /* קלט טקסט ואזור טקסט */
-.field input[type=text],.field textarea{width:100%;background:var(--panel-3);border:1px solid var(--line);border-radius:9px;color:var(--ink);font-family:inherit;font-size:14px;padding:9px 11px;resize:vertical}
+.field input[type=text],.field input[type=password],.field textarea{width:100%;background:var(--panel-3);border:1px solid var(--line);border-radius:9px;color:var(--ink);font-family:inherit;font-size:14px;padding:9px 11px;resize:vertical}
 /* שורת תשובה בטופס: רדיו לנכונה + שדה טקסט + כפתור הסרה */
 .ansrow{display:flex;gap:8px;align-items:center}
 /* הרדיו מוגדל מעט לנוחות לחיצה */
@@ -359,6 +364,26 @@ kbd{background:var(--panel-3);border:1px solid var(--line);border-bottom-width:2
 </div>
 
 <!-- ==========================================================================
+     שכבה 6א — מסך נעילה. חוסם את הכניסה לעורך השאלות בסיסמה.
+     ========================================================================== -->
+<div class="screen" id="screenLock" hidden>
+  <div class="card" style="max-width:430px">
+    <p class="kicker">אזור מוגן</p>
+    <h1 class="logo" style="font-size:clamp(24px,5vw,34px)">עורך השאלות</h1>
+    <p style="text-align:center">עריכת שאלות ההאקתון דורשת סיסמה.</p>
+    <div class="field">
+      <label for="lockInput">סיסמה</label>
+      <input type="password" id="lockInput" autocomplete="current-password" spellcheck="false" maxlength="120">
+    </div>
+    <div class="note err" id="lockError" hidden></div>
+    <div class="row">
+      <button class="btn primary" id="btnUnlock" type="button">כניסה</button>
+      <button class="btn" id="btnLockCancel" type="button">ביטול</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==========================================================================
      שכבה 6 — עורך השאלות (ניהול התוכן)
      ========================================================================== -->
 <div class="screen" id="screenEditor" hidden>
@@ -454,6 +479,29 @@ var CONFIG = {
   pointsWrong: 0,                                       /* ניקוד על תשובה שגויה */
   showExplanation: true,                                /* האם להציג את שדה ההסבר אחרי המענה */
   shuffleAnswers: true                                  /* ערבוב סדר התשובות בכל הצגה — כדי שהתשובה הנכונה לא תהיה תמיד באותו מקום */
+};
+
+/* ----------------------------------------------------------------------------
+   נעילת עורך השאלות.
+   הסיסמה עצמה אינה נמצאת בקובץ — רק הגיבוב שלה:
+       hash = SHA-256( salt + ":" + password )
+   כך שמי שפותח את קוד המקור רואה מחרוזת hex חסרת משמעות ולא את הסיסמה.
+
+   ⚠️ מה ההגנה הזו כן ואינה נותנת:
+   זהו מחסום הרתעה מול משתמש מזדמן, לא אבטחה אמיתית. בקובץ HTML בודד ללא
+   שרת, מי שמעוניין יכול לערוך את השאלות ישירות ב-localStorage דרך כלי
+   המפתחים, או להוריד את הקובץ ולהסיר את הבדיקה. אבטחה אמיתית מחייבת שרת
+   שמאחסן את השאלות ומאמת מולו.
+
+   כיבוי הנעילה: enabled = false.
+   החלפת סיסמה: יש לחשב מחדש את hash עבור salt + ":" + הסיסמה החדשה.
+   ---------------------------------------------------------------------------- */
+var EDITOR_LOCK = {
+  enabled: true,                                        /* האם לדרוש סיסמה לכניסה לעורך */
+  salt: 'noizz26.editor.v1',                            /* מלח קבוע — מונע שימוש בטבלאות גיבוב מוכנות */
+  hash: '718d001e1bb5b094c666c26f3f7df02795f61a2db3f6500b06dc985c7da97570', /* SHA-256 של המלח והסיסמה */
+  maxAttempts: 5,                                       /* כמה ניסיונות כושלים לפני נעילה זמנית */
+  lockSeconds: 30                                       /* אורך הנעילה הזמנית בשניות */
 };
 
 /* ----------------------------------------------------------------------------
@@ -588,6 +636,7 @@ function storageSet(key, value) {
 /* מפתחות האחסון המקומי — עם סיומת גרסה כדי לאפשר שינוי מבנה בעתיד */
 var STORE_QUESTIONS = 'noizz26.questions.v1';            /* השאלות שנערכו בעורך */
 var STORE_BEST = 'noizz26.best.v1';                      /* השיא האישי */
+var STORE_LOCK = 'noizz26.lock.v1';                      /* מונה ניסיונות כושלים לכניסה לעורך */
 
 /* מגבלות אורך — מגן מפני קלט ענק שיתקע את הדפדפן או ישבור את הפריסה */
 var LIMIT_Q = 300;                                       /* אורך מרבי לנוסח שאלה */
@@ -1343,6 +1392,7 @@ function onKeyDown(e) {
   if (e.code === 'KeyE') { toggleVehicle(); e.preventDefault(); return; } /* כניסה/יציאה מהרכב */
   if (e.code === 'KeyM') { toggleSound(); return; }           /* השתקה */
   if (e.code === 'Escape') {                                  /* השהיה או חזרה ממנה */
+    if (!$('screenLock').hidden) { closeLockScreen(); return; } /* מסך הנעילה פתוח — Esc מבטל אותו */
     if (state.mode === 'play') { pauseGame(); }
     else if (state.mode === 'pause') { resumeGame(); }
   }
@@ -1965,7 +2015,7 @@ function handleQuizKey(e) {
    ============================================================================ */
 
 /* רשימת כל המסכים המלאים, לניהול מרוכז של מה מוצג */
-var SCREENS = ['screenStart', 'screenPause', 'screenEnd', 'screenEditor'];
+var SCREENS = ['screenStart', 'screenPause', 'screenEnd', 'screenEditor', 'screenLock'];
 
 /* הצגת מסך אחד והסתרת השאר; ערך null מסתיר את כולם */
 function showScreen(id) {
@@ -2074,6 +2124,177 @@ function endGame() {
 
   showScreen('screenEnd');                                    /* הצגת מסך הסיום */
   $('btnPlayAgain').focus();                                  /* מיקוד לנוחות מקלדת */
+}
+
+/* ============================================================================
+   בלוק 13א — נעילת העורך: אימות סיסמה, הגבלת קצב ומסך הנעילה
+   ============================================================================ */
+
+/* האם העורך נפתח בטעינה הנוכחית. מוחזק בזיכרון בלבד ולא נשמר בשום מקום,
+   כך שרענון הדף דורש סיסמה מחדש. */
+var editorUnlocked = false;
+
+/* לאיזה מסך לחזור אם לוחצים "ביטול" במסך הנעילה */
+var lockReturn = 'screenStart';
+
+/* מזהה הטיימר של ספירת הנעילה הזמנית */
+var lockTimer = 0;
+
+/* המרת מערך בתים למחרוזת hex — הפורמט שבו נשמר הגיבוב */
+function toHex(bytes) {
+  var out = '';                                               /* המחרוזת הנבנית */
+  for (var i = 0; i < bytes.length; i++) {                    /* בית אחר בית */
+    var h = bytes[i].toString(16);                            /* המרה לבסיס 16 */
+    out += h.length === 1 ? '0' + h : h;                      /* ריפוד אפס לספרה בודדת */
+  }
+  return out;                                                 /* הגיבוב כמחרוזת */
+}
+
+/* השוואת מחרוזות בזמן קבוע — לא יוצאים מוקדם בהתאמה ראשונה, כדי שזמן
+   התגובה לא ידליף כמה תווים מהגיבוב נוחשו נכון (Timing attack). */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') { return false; } /* קלט לא צפוי */
+  if (a.length !== b.length) { return false; }                /* אורך הגיבוב קבוע וידוע ממילא */
+  var diff = 0;                                               /* צובר הפרשים */
+  for (var i = 0; i < a.length; i++) {                        /* מעבר על כל התווים תמיד */
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);                /* כל הפרש נשאר בצובר */
+  }
+  return diff === 0;                                          /* זהות רק אם לא נמצא שום הפרש */
+}
+
+/* חישוב הגיבוב של סיסמה. אסינכרוני, כי Web Crypto מחזיר Promise.
+   אם הדפדפן אינו מספק crypto.subtle — מחזירים null, והנעילה נשארת סגורה
+   (כישלון בטוח) במקום להיפתח בעזרת גיבוב חלש. */
+function hashPassword(password, done) {
+  var text = EDITOR_LOCK.salt + ':' + password;               /* המלח והסיסמה יחד */
+  try {
+    if (window.crypto && window.crypto.subtle && window.TextEncoder) { /* Web Crypto זמין */
+      window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+        .then(function (buf) { done(toHex(new Uint8Array(buf))); })    /* הצלחה — הגיבוב כ-hex */
+        .catch(function () { done(null); });                           /* כשל — כישלון בטוח */
+      return;                                                 /* יציאה: התוצאה תגיע דרך הקריאה החוזרת */
+    }
+  } catch (e) { /* דפדפן חוסם גישה ל-crypto — נופלים לכישלון בטוח */ }
+  done(null);                                                 /* אין תמיכה — לא פותחים */
+}
+
+/* קריאת מצב ההגבלה מהאחסון: כמה ניסיונות כושלים ועד מתי חסום */
+function readLockState() {
+  try {
+    var raw = storageGet(STORE_LOCK);                         /* המחרוזת השמורה */
+    var obj = raw ? JSON.parse(raw) : null;                   /* פענוח */
+    if (obj && typeof obj === 'object') {                     /* ולידציה בסיסית */
+      return { fails: parseInt(obj.fails, 10) || 0, until: parseInt(obj.until, 10) || 0 };
+    }
+  } catch (e) { /* תוכן פגום — מתייחסים כאילו אין היסטוריה */ }
+  return { fails: 0, until: 0 };                              /* ברירת מחדל */
+}
+
+/* שמירת מצב ההגבלה */
+function writeLockState(st) {
+  storageSet(STORE_LOCK, JSON.stringify({ fails: st.fails, until: st.until })); /* שמירה בטוחה */
+}
+
+/* כמה שניות נותרו לנעילה הזמנית; 0 אם אינה פעילה */
+function lockRemaining() {
+  var st = readLockState();                                   /* המצב השמור */
+  var left = Math.ceil((st.until - Date.now()) / 1000);       /* השניות שנותרו */
+  return left > 0 ? left : 0;                                 /* ערכים שליליים = לא נעול */
+}
+
+/* נקודת הכניסה היחידה לעורך — כל כפתורי העורך עוברים דרכה */
+function requestEditorAccess(fromScreen) {
+  lockReturn = fromScreen;                                    /* לאן לחזור בביטול */
+  if (!EDITOR_LOCK.enabled || editorUnlocked) {               /* נעילה כבויה או כבר נפתחה */
+    openEditor();                                             /* כניסה ישירה */
+    return;
+  }
+  openLockScreen();                                           /* אחרת — דורשים סיסמה */
+}
+
+/* הצגת מסך הנעילה */
+function openLockScreen() {
+  $('lockInput').value = '';                                  /* השדה תמיד מתחיל ריק */
+  hideLockError();                                            /* בלי שגיאות ישנות */
+  showScreen('screenLock');                                   /* הצגת המסך */
+  refreshLockCountdown();                                     /* עדכון מצב הנעילה הזמנית */
+  $('lockInput').focus();                                     /* מיקוד בשדה */
+}
+
+/* סגירת מסך הנעילה וחזרה למסך שממנו הגענו */
+function closeLockScreen() {
+  $('lockInput').value = '';                                  /* לא משאירים סיסמה בשדה */
+  window.clearInterval(lockTimer);                            /* עצירת ספירת הנעילה */
+  lockTimer = 0;
+  showScreen(lockReturn);                                     /* חזרה למסך הקודם */
+}
+
+/* הצגת הודעת שגיאה במסך הנעילה */
+function showLockError(msg) {
+  var el = $('lockError');                                    /* אלמנט השגיאה */
+  setText(el, msg);                                           /* טקסט */
+  el.hidden = false;                                          /* הצגה */
+}
+
+/* הסתרת הודעת השגיאה */
+function hideLockError() { $('lockError').hidden = true; }
+
+/* עדכון תצוגת הנעילה הזמנית, כולל ספירה לאחור פעם בשנייה */
+function refreshLockCountdown() {
+  window.clearInterval(lockTimer);                            /* טיימר קודם, אם היה */
+  lockTimer = 0;
+  var tick = function () {                                    /* פעולה שרצה כל שנייה */
+    var left = lockRemaining();                               /* השניות שנותרו */
+    if (left > 0) {                                           /* עדיין נעול */
+      $('btnUnlock').disabled = true;                         /* אי אפשר לנסות */
+      $('lockInput').disabled = true;                         /* והשדה נעול */
+      showLockError('יותר מדי ניסיונות. נסו שוב בעוד ' + left + ' שניות.');
+    } else {                                                  /* הנעילה הסתיימה */
+      $('btnUnlock').disabled = false;                        /* פתיחת הכפתור */
+      $('lockInput').disabled = false;                        /* ופתיחת השדה */
+      window.clearInterval(lockTimer);                        /* אין צורך בטיימר */
+      lockTimer = 0;
+      hideLockError();                                        /* ניקוי ההודעה */
+    }
+  };
+  tick();                                                     /* הרצה מיידית */
+  if (lockRemaining() > 0) { lockTimer = window.setInterval(tick, 1000); } /* ואז כל שנייה */
+}
+
+/* ניסיון פתיחה: מגבב את מה שהוקלד ומשווה לגיבוב השמור */
+function attemptUnlock() {
+  if (lockRemaining() > 0) { return; }                        /* בזמן נעילה זמנית לא בודקים כלל */
+  var input = $('lockInput');                                 /* שדה הסיסמה */
+  var value = input.value;                                    /* מה שהוקלד */
+  input.value = '';                                           /* ניקוי מיידי — לא משאירים סוד בשדה */
+  if (!value) { showLockError('נא להקליד סיסמה.'); return; }  /* שדה ריק */
+  $('btnUnlock').disabled = true;                             /* מניעת לחיצות כפולות בזמן החישוב */
+  hashPassword(value, function (digest) {                     /* חישוב הגיבוב */
+    value = '';                                               /* שחרור הסיסמה מהזיכרון המקומי */
+    $('btnUnlock').disabled = false;                          /* החזרת הכפתור */
+    if (digest === null) {                                    /* הדפדפן אינו תומך באימות */
+      showLockError('הדפדפן אינו תומך באימות מאובטח. פתחו את הקובץ בדפדפן עדכני.');
+      return;                                                 /* כישלון בטוח — לא נפתח */
+    }
+    if (safeEqual(digest, EDITOR_LOCK.hash)) {                /* התאמה */
+      writeLockState({ fails: 0, until: 0 });                 /* איפוס מונה הניסיונות */
+      editorUnlocked = true;                                  /* פתוח לשארית הטעינה הנוכחית */
+      window.clearInterval(lockTimer); lockTimer = 0;         /* עצירת טיימר */
+      $('lockInput').value = '';                              /* ניקוי אחרון */
+      openEditor();                                           /* כניסה לעורך */
+      return;
+    }
+    var st = readLockState();                                 /* כישלון — עדכון המונה */
+    st.fails += 1;                                            /* ניסיון כושל נוסף */
+    if (st.fails >= EDITOR_LOCK.maxAttempts) {                /* חצינו את הסף */
+      st.fails = 0;                                           /* איפוס המונה */
+      st.until = Date.now() + EDITOR_LOCK.lockSeconds * 1000; /* נעילה זמנית */
+    }
+    writeLockState(st);                                       /* שמירה */
+    if (lockRemaining() > 0) { refreshLockCountdown(); }      /* נכנסנו לנעילה — ספירה לאחור */
+    else { showLockError('סיסמה שגויה.'); }                   /* הודעה גנרית, בלי רמזים */
+    $('lockInput').focus();                                   /* חזרה לשדה לניסיון נוסף */
+  });
 }
 
 /* ============================================================================
@@ -2392,15 +2613,22 @@ function refreshStartScreen() {
 /* חיווט כל כפתורי הממשק לפעולות */
 function wireUI() {
   $('btnStart').addEventListener('click', startGame);                       /* התחלת משחק */
-  $('btnEditorFromStart').addEventListener('click', openEditor);            /* עורך ממסך הפתיחה */
+  $('btnEditorFromStart').addEventListener('click', function () { requestEditorAccess('screenStart'); }); /* עורך ממסך הפתיחה */
   $('btnResume').addEventListener('click', resumeGame);                     /* חזרה מהשהיה */
   $('btnRestart').addEventListener('click', startGame);                     /* משחק חדש מההשהיה */
-  $('btnEditorFromPause').addEventListener('click', openEditor);            /* עורך מההשהיה */
+  $('btnEditorFromPause').addEventListener('click', function () { requestEditorAccess('screenPause'); }); /* עורך מההשהיה */
   $('btnPlayAgain').addEventListener('click', startGame);                   /* משחק נוסף מהסיום */
-  $('btnEditorFromEnd').addEventListener('click', openEditor);              /* עורך מהסיום */
+  $('btnEditorFromEnd').addEventListener('click', function () { requestEditorAccess('screenEnd'); }); /* עורך מהסיום */
   $('btnPause').addEventListener('click', pauseGame);                       /* כפתור ההשהיה ב-HUD */
   $('btnSound').addEventListener('click', toggleSound);                     /* כפתור השמע */
   $('btnContinue').addEventListener('click', closeQuestion);                /* המשך אחרי שאלה */
+
+  $('btnUnlock').addEventListener('click', attemptUnlock);                  /* ניסיון פתיחה */
+  $('btnLockCancel').addEventListener('click', closeLockScreen);            /* ביטול וחזרה */
+  $('lockInput').addEventListener('keydown', function (e) {                 /* מקלדת בשדה הסיסמה */
+    if (e.key === 'Enter') { attemptUnlock(); e.preventDefault(); }         /* Enter מנסה להיכנס */
+    else if (e.key === 'Escape') { closeLockScreen(); e.preventDefault(); } /* Esc מבטל */
+  });
 
   $('btnNewQ').addEventListener('click', function () { showForm(-1); });    /* שאלה חדשה */
   $('btnSaveQ').addEventListener('click', saveForm);                        /* שמירת הטופס */
