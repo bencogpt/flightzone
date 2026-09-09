@@ -482,6 +482,20 @@ var CONFIG = {
 };
 
 /* ----------------------------------------------------------------------------
+   עולם מבוסס GIS.
+   כאן מדביקים את הפלט של tools/arcgis2noizz.py — מצולעי בניינים אמיתיים,
+   צירי כבישים ונקודות איסוף שנשלפו משרת ArcGIS. הכלי יודע גם להזריק לכאן
+   לבד: python3 arcgis2noizz.py --config config.json --inject ../noizz26.html
+   הסימנים שמסביב הם התחום שהוא מחליף — אין למחוק אותם.
+
+   כשהערך null, המשחק מייצר עיר פרוצדורלית בדיוק כמו קודם. זו נפילת הגיבוי:
+   נתונים חסרים או פגומים לעולם לא ישאירו מסך ריק.
+   ---------------------------------------------------------------------------- */
+/* >>> NOIZZ26-WORLD-DATA >>> */
+var WORLD_DATA = null;
+/* <<< NOIZZ26-WORLD-DATA <<< */
+
+/* ----------------------------------------------------------------------------
    נעילת עורך השאלות.
    הסיסמה עצמה אינה נמצאת בקובץ — רק הגיבוב שלה:
        hash = SHA-256( salt + ":" + password )
@@ -715,6 +729,10 @@ var cells = null;                  /* Uint8Array בגודל GRID*GRID עם סו�
 var buildings = [];                /* מלבני הבניינים לציור (בפיקסלים) */
 var props = [];                    /* עצים ופרטי נוי (בפיקסלים) */
 var lamps = [];                    /* פנסי רחוב בצמתים, לציור הילות אור */
+var roads = [];                    /* צירי כבישים — רק במצב GIS */
+var spots = [];                    /* נקודות איסוף מהנתונים — רק במצב GIS */
+var spawnPoint = null;             /* נקודת פתיחה מהנתונים — רק במצב GIS */
+var gisMode = false;               /* האם העולם נטען מנתוני GIS או נוצר פרוצדורלית */
 
 /* שכונות העיר. לכל שכונה פלטת קירות, צבע גג, גוון מדרכה, צפיפות שלטי ניאון
    וטווח קומות משלה — כך שהעיר מרגישה מחולקת לאזורים, כמו ב-GTA2. */
@@ -764,8 +782,9 @@ function isSolidAt(x, y) {
   return isSolidCell(Math.floor(x / CELL), Math.floor(y / CELL));     /* המרה מפיקסלים לתאים */
 }
 
-/* בניית העיר: מילוי מטריצת התאים ורשימות הציור */
-function buildCity() {
+/* בניית העיר הפרוצדורלית: מילוי מטריצת התאים ורשימות הציור.
+   זהו מסלול הגיבוי — רץ רק כשאין WORLD_DATA. */
+function buildCityProcedural() {
   var rng = makeRng(CITY_SEED);                     /* מחולל אקראי דטרמיניסטי */
   cells = new Uint8Array(GRID * GRID);              /* הקצאת מטריצת התאים */
   buildings = [];                                   /* איפוס רשימת הבניינים */
@@ -815,20 +834,16 @@ function makeBuildingBlock(rng, x0, y0, dist) {
       }
     }
     var floors = dist.floors[0] + Math.floor(rng() * (dist.floors[1] - dist.floors[0] + 1)); /* גובה הבניין בקומות */
-    var signs = [];                                 /* שלטי הניאון שיתלו על הקירות */
-    var signCount = rng() < dist.signRate ? (rng() < 0.35 ? 2 : 1) : 0; /* כמה שלטים, לפי צפיפות השכונה */
-    for (var sg = 0; sg < signCount; sg++) {        /* יצירת כל שלט */
-      signs.push({
-        side: Math.floor(rng() * 4),                /* על איזה קיר הוא תלוי (0=צפון, 1=מזרח, 2=דרום, 3=מערב) */
-        t: 0.10 + rng() * 0.45,                     /* מיקום יחסי לאורך הקיר */
-        len: 0.18 + rng() * 0.26,                   /* אורך יחסי של השלט */
-        v: 0.30 + rng() * 0.22,                     /* גובה יחסי על הקיר */
-        color: pick(rng, NEON_COLORS)               /* צבע הניאון */
-      });
-    }
+    var signs = makeSigns(rng, dist, 4);            /* שלטי הניאון, על אחד מארבעת הקירות */
     buildings.push({                                /* רשומת ציור בפיקסלים */
       x: r[0] * CELL, y: r[1] * CELL,               /* פינה שמאלית-עליונה של בסיס הבניין */
       w: r[2] * CELL, h: r[3] * CELL,               /* מידות הבסיס */
+      poly: [                                       /* אותו מלבן כמצולע — הרנדרר עובד על מצולעים בלבד */
+        [r[0] * CELL, r[1] * CELL],
+        [(r[0] + r[2]) * CELL, r[1] * CELL],
+        [(r[0] + r[2]) * CELL, (r[1] + r[3]) * CELL],
+        [r[0] * CELL, (r[1] + r[3]) * CELL]
+      ],
       color: pick(rng, dist.walls),                 /* צבע הקירות, לפי פלטת השכונה */
       roofColor: dist.roof,                         /* צבע הגג */
       floors: floors,                               /* גובה — קובע את עוצמת ההיטל ואת מספר שורות החלונות */
@@ -837,6 +852,23 @@ function makeBuildingBlock(rng, x0, y0, dist) {
       seed: Math.floor(rng() * 100000)              /* seed לפרטי הגג והחלונות */
     });
   }
+}
+
+/* יצירת שלטי ניאון לבניין. edges הוא מספר הקירות — 4 במלבן פרוצדורלי,
+   ומספר הצלעות במצולע אמיתי מ-GIS. */
+function makeSigns(rng, dist, edges) {
+  var signs = [];                                   /* השלטים שייווצרו */
+  var count = rng() < dist.signRate ? (rng() < 0.35 ? 2 : 1) : 0; /* לפי צפיפות השכונה */
+  for (var i = 0; i < count; i++) {                 /* יצירת כל שלט */
+    signs.push({
+      side: Math.floor(rng() * edges),              /* על איזו צלע הוא תלוי */
+      t: 0.10 + rng() * 0.45,                       /* מיקום יחסי לאורך הצלע */
+      len: 0.18 + rng() * 0.26,                     /* אורך יחסי */
+      v: 0.30 + rng() * 0.22,                       /* גובה יחסי על הקיר */
+      color: pick(rng, NEON_COLORS)                 /* צבע הניאון */
+    });
+  }
+  return signs;                                     /* רשימת השלטים */
 }
 
 /* מבנן פארק: כל הפנים דשא, עם עצים פזורים כפרטי נוי (אינם חוסמים תנועה) */
@@ -866,6 +898,133 @@ function makePlazaBlock(x0, y0) {
 }
 
 /* ============================================================================
+   בלוק 4א — טעינת עולם מנתוני GIS (הפלט של tools/arcgis2noizz.py)
+   ============================================================================ */
+
+/* פריקת רשת ההתנגשות מקידוד RLE בבסיס 36: אורכי רצפים לסירוגין, מתחילים בפנוי */
+function decodeCells(str, total) {
+  var out = new Uint8Array(total);                            /* הרשת, אפס = פנוי */
+  var parts = String(str || '').split(',');                   /* אורכי הרצפים */
+  var solid = false;                                          /* הרצף הראשון הוא פנוי */
+  var pos = 0;                                                /* מיקום ברשת */
+  for (var i = 0; i < parts.length && pos < total; i++) {     /* מעבר על הרצפים */
+    var len = parseInt(parts[i], 36);                         /* אורך הרצף */
+    if (!(len >= 0)) { len = 0; }                             /* ערך פגום — רצף באורך אפס */
+    if (solid) {                                              /* רצף חסום — כתיבה בפועל */
+      var end = Math.min(total, pos + len);                   /* לא לחרוג מגבול הרשת */
+      for (var j = pos; j < end; j++) { out[j] = T_BUILD; }    /* סימון כבניין */
+    }
+    pos += len;                                               /* קידום */
+    solid = !solid;                                           /* החלפה בין פנוי לחסום */
+  }
+  return out;                                                 /* הרשת המוכנה */
+}
+
+/* שטח מסומן של מצולע (שרוכי נעל). במערכת המסך, סימן חיובי = כיוון השעון. */
+function polyArea(poly) {
+  var total = 0;                                              /* הצובר */
+  for (var i = 0; i < poly.length; i++) {                     /* מעבר על הצלעות */
+    var a = poly[i], b = poly[(i + 1) % poly.length];         /* שני קודקודים עוקבים */
+    total += a[0] * b[1] - b[0] * a[1];                       /* תרומת הצלע */
+  }
+  return total / 2;                                           /* השטח */
+}
+
+/* נירמול כיוון הקיפוף לשעון — הרנדרר מחשב נורמל יוצא כ-(dy,-dx), וזה נכון
+   רק בכיוון אחד. מצולע בכיוון ההפוך היה מציג את הקירות הלא נכונים. */
+function ensureCW(poly) { return polyArea(poly) > 0 ? poly : poly.slice().reverse(); }
+
+/* תיבה חוסמת של מצולע: [xmin, ymin, xmax, ymax] */
+function polyBounds(poly) {
+  var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;   /* ערכי קיצון */
+  for (var i = 0; i < poly.length; i++) {                     /* מעבר על הקודקודים */
+    var p = poly[i];                                          /* הקודקוד */
+    if (p[0] < x0) { x0 = p[0]; }                             /* עדכון הגבולות */
+    if (p[1] < y0) { y0 = p[1]; }
+    if (p[0] > x1) { x1 = p[0]; }
+    if (p[1] > y1) { y1 = p[1]; }
+  }
+  return [x0, y0, x1, y1];                                    /* התיבה */
+}
+
+/* טעינת מבנה WORLD_DATA לתוך מצב המשחק. מחזירה false אם הנתונים פגומים,
+   וכך המשחק נופל חזרה לעיר הפרוצדורלית במקום להישאר עם מסך ריק. */
+function loadWorldData(data) {
+  if (!data || typeof data !== 'object' || !data.meta) { return false; }   /* מבנה לא צפוי */
+  var meta = data.meta;                                       /* בלוק המטא */
+  var world = parseInt(meta.world, 10);                       /* גודל העולם בפיקסלים */
+  var cell = parseInt(meta.cell, 10);                         /* גודל תא ההתנגשות */
+  var grid = parseInt(meta.grid, 10);                         /* מספר התאים בכל ציר */
+  if (!(world > 0 && cell > 0 && grid > 0)) { return false; } /* ערכים לא שמישים */
+  if (world > 6000) { return false; }                         /* מעבר לזה הרצפה כבדה מדי לזיכרון */
+  if (!Array.isArray(data.buildings)) { return false; }       /* חייב מערך בניינים */
+
+  CELL = cell;                                                /* החלפת קבועי הרשת */
+  GRID = grid;
+  WORLD = world;
+  cells = decodeCells(data.cells, GRID * GRID);               /* רשת ההתנגשות */
+
+  buildings = [];                                             /* בניית רשומות הבניינים */
+  for (var i = 0; i < data.buildings.length; i++) {           /* מעבר על המצולעים */
+    var raw = data.buildings[i];                              /* הרשומה הגולמית */
+    if (!raw || !Array.isArray(raw.p) || raw.p.length < 6) { continue; }   /* פחות משלושה קודקודים */
+    var poly = [];                                            /* המצולע כזוגות */
+    for (var j = 0; j + 1 < raw.p.length; j += 2) {           /* פריקת המערך השטוח */
+      var x = +raw.p[j], y = +raw.p[j + 1];                   /* הקואורדינטות */
+      if (!isFinite(x) || !isFinite(y)) { poly = null; break; }   /* ערך פגום — פוסלים */
+      poly.push([x, y]);
+    }
+    if (!poly || poly.length < 3) { continue; }               /* מצולע לא שמיש */
+    poly = ensureCW(poly);                                    /* נירמול כיוון */
+    var bb = polyBounds(poly);                                /* תיבה חוסמת לחיתוך ולמיון */
+    var dist = DISTRICTS[clamp(parseInt(raw.d, 10) || 0, 0, DISTRICTS.length - 1)];  /* שכונה */
+    /* seed מהמיקום — כך החלונות והשלטים יציבים בין פריימים ובין טעינות */
+    var seed = ((Math.round(bb[0]) * 73856093) ^ (Math.round(bb[1]) * 19349663)) >>> 0;
+    var rng = makeRng(seed);                                  /* מחולל ייעודי לבניין */
+    buildings.push({
+      poly: poly,                                             /* טביעת הרגל האמיתית */
+      x: bb[0], y: bb[1], w: bb[2] - bb[0], h: bb[3] - bb[1], /* תיבה חוסמת */
+      floors: clamp(parseInt(raw.f, 10) || 3, 1, 12),         /* גובה בקומות */
+      color: pick(rng, dist.walls),                           /* צבע קירות מפלטת השכונה */
+      roofColor: dist.roof,                                   /* צבע הגג */
+      signs: makeSigns(rng, dist, poly.length),               /* שלטי ניאון על צלע כלשהי */
+      dist: 0,                                                /* שדה עבודה למיון בכל פריים */
+      seed: seed                                              /* לפרטי הגג והחלונות */
+    });
+  }
+
+  roads = Array.isArray(data.roads) ? data.roads : [];        /* צירי הכבישים */
+  spots = Array.isArray(data.spots) ? data.spots : [];        /* נקודות האיסוף */
+  spawnPoint = (Array.isArray(meta.spawn) && meta.spawn.length === 2)
+    ? [+meta.spawn[0], +meta.spawn[1]] : [WORLD / 2, WORLD / 2];   /* נקודת הפתיחה */
+  props = [];                                                 /* אין עצים מהנתונים */
+  lamps = buildLampsAlongRoads();                             /* פנסים לאורך הכבישים */
+  gisMode = true;                                             /* מכאן והלאה מסלול ה-GIS */
+  return true;                                                /* הטעינה הצליחה */
+}
+
+/* פיזור פנסי רחוב לאורך הכבישים, לשמירה על אווירת הלילה גם במפה אמיתית */
+function buildLampsAlongRoads() {
+  var out = [];                                               /* רשימת הפנסים */
+  var step = 150;                                             /* מרחק בין פנסים בפיקסלים */
+  for (var r = 0; r < roads.length && out.length < 900; r++) { /* תקרה — מונעת עומס בציור */
+    var pts = roads[r].p;                                     /* המערך השטוח */
+    var carry = 0;                                            /* שארית מהמקטע הקודם */
+    for (var i = 0; i + 3 < pts.length; i += 2) {             /* מעבר על מקטעי הציר */
+      var x0 = pts[i], y0 = pts[i + 1], x1 = pts[i + 2], y1 = pts[i + 3];   /* קצות המקטע */
+      var len = Math.hypot(x1 - x0, y1 - y0);                 /* אורך המקטע */
+      if (len < 1) { continue; }                              /* מקטע מנוון */
+      for (var d = step - carry; d < len; d += step) {        /* נקודות לאורך המקטע */
+        var t = d / len;                                      /* מיקום יחסי */
+        out.push({ x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t });   /* פנס */
+      }
+      carry = (len + carry) % step;                           /* שארית למקטע הבא */
+    }
+  }
+  return out;                                                 /* הפנסים */
+}
+
+/* ============================================================================
    בלוק 5 — ציור מוקדם של העיר. הרקע מצויר פעם אחת לקנבס מחוץ למסך,
    ובכל פריים רק מעתיקים ממנו את החלון הנראה — במקום לצייר אלפי מלבנים.
    ============================================================================ */
@@ -884,6 +1043,14 @@ function renderWorldCanvas() {
 
   g.fillStyle = ASPHALT;                            /* צבע האספלט הבסיסי */
   g.fillRect(0, 0, WORLD, WORLD);                   /* מילוי כל העולם */
+
+  if (gisMode) {                                    /* עולם מנתוני GIS — קרקע מהצירים */
+    renderGroundFromRoads(g, rng);                  /* ציור הכבישים והמדרכות */
+    for (var lg = 0; lg < lamps.length; lg++) { drawLamp(g, lamps[lg]); }   /* הילות הפנסים */
+    worldCanvas = c;                                /* שמירת התוצאה */
+    renderMiniCanvas();                             /* ובניית המיני-מפה */
+    return;                                         /* שאר הפונקציה שייך למסלול הפרוצדורלי */
+  }
 
   var cx, cy, px, py, t;                            /* משתני עזר ללולאת התאים */
   for (cy = 0; cy < GRID; cy++) {                   /* מעבר על שורות התאים */
@@ -930,6 +1097,88 @@ function renderWorldCanvas() {
 
   worldCanvas = c;                                  /* שמירת התוצאה לשימוש בלולאת הציור */
   renderMiniCanvas();                               /* בניית הגרסה המוקטנת למיני-מפה */
+}
+
+/* ציור הקרקע במצב GIS: משטח מדרכה כללי, ומעליו הכבישים לפי הצירים האמיתיים.
+   כל כביש מצויר בשלוש שכבות — מעטפת בהירה (אבן שפה), אספלט, וקו מרכז. */
+function renderGroundFromRoads(g, rng) {
+  g.fillStyle = '#1b2130';                          /* מגרשים וחצרות — הרקע הכהה של המבננים */
+  g.fillRect(0, 0, WORLD, WORLD);
+
+  var i, j, road, pts;                              /* משתני לולאה */
+  for (i = 0; i < 1400; i++) {                      /* מרקם עדין, שובר את האחידות */
+    g.fillStyle = rng() < 0.5 ? 'rgba(255,255,255,.014)' : 'rgba(0,0,0,.05)';
+    var bw = 30 + rng() * 90;                       /* גודל הכתם */
+    g.fillRect(rng() * WORLD, rng() * WORLD, bw, bw * (0.4 + rng()));
+  }
+
+  g.lineCap = 'round';                              /* קצוות וחיבורים מעוגלים */
+  g.lineJoin = 'round';                             /* מונע פינות חדות בכיפופים */
+
+  /* שלושה מעברים לאורך אותם צירים: רצועת מדרכה רחבה, אבן שפה, ואז האספלט.
+     כך לרחוב יש שוליים מוגדרים ופנים המבנן נקרא כשטח בנוי ולא כמשטח ריק. */
+  var PASSES = [
+    { color: '#2a3145', extra: 26 },                /* מדרכה — בהיר מהמגרשים */
+    { color: 'rgba(200,214,244,.20)', extra: 7 },   /* אבן שפה */
+    { color: ASPHALT, extra: 0 }                    /* האספלט עצמו */
+  ];
+  for (var pass = 0; pass < PASSES.length; pass++) { /* מעבר אחרי מעבר */
+    g.strokeStyle = PASSES[pass].color;             /* צבע המעבר */
+    for (i = 0; i < roads.length; i++) {            /* מעבר על כל הכבישים */
+      road = roads[i];                              /* הכביש הנוכחי */
+      pts = road.p;                                 /* המערך השטוח */
+      if (!pts || pts.length < 4) { continue; }     /* ציר מנוון */
+      g.lineWidth = road.w + PASSES[pass].extra;    /* רוחב לפי המעבר */
+      g.beginPath();
+      g.moveTo(pts[0], pts[1]);                     /* קודקוד ראשון */
+      for (j = 2; j + 1 < pts.length; j += 2) { g.lineTo(pts[j], pts[j + 1]); }  /* שאר הציר */
+      g.stroke();
+    }
+  }
+
+  g.setLineDash([14, 18]);                          /* קו הפרדה מקווקו */
+  g.strokeStyle = 'rgba(255,255,255,.16)';
+  g.lineWidth = 2;
+  for (i = 0; i < roads.length; i++) {              /* רק בכבישים רחבים — כביש צר הוא חד-נתיבי */
+    road = roads[i];
+    if (road.w < 12) { continue; }
+    pts = road.p;
+    if (!pts || pts.length < 4) { continue; }
+    g.beginPath();
+    g.moveTo(pts[0], pts[1]);
+    for (j = 2; j + 1 < pts.length; j += 2) { g.lineTo(pts[j], pts[j + 1]); }
+    g.stroke();
+  }
+  g.setLineDash([]);                                /* ביטול המקווקו */
+
+  for (i = 0; i < buildings.length; i++) {          /* בסיס כהה בטביעת הרגל של כל בניין */
+    var fp = buildings[i].poly;                     /* המצולע */
+    g.fillStyle = '#0d1019';                        /* כהה — מעגן את הבניין בקרקע */
+    g.beginPath();
+    g.moveTo(fp[0][0], fp[0][1]);                   /* קודקוד ראשון */
+    for (j = 1; j < fp.length; j++) { g.lineTo(fp[j][0], fp[j][1]); }   /* שאר הקודקודים */
+    g.closePath();
+    g.fill();
+  }
+
+  for (i = 0; i < 320; i++) {                       /* מכסי ביוב וכתמים על הכביש */
+    var r = roads[Math.floor(rng() * roads.length)];/* כביש אקראי */
+    if (!r || !r.p || r.p.length < 4) { continue; }
+    var k = Math.floor(rng() * (r.p.length / 2 - 1)) * 2;   /* מקטע אקראי בתוכו */
+    var t = rng();                                  /* מיקום יחסי במקטע */
+    var gx = r.p[k] + (r.p[k + 2] - r.p[k]) * t;    /* הנקודה על הציר */
+    var gy = r.p[k + 1] + (r.p[k + 3] - r.p[k + 1]) * t;
+    gx += (rng() - 0.5) * r.w * 0.7;                /* פיזור לרוחב הכביש */
+    gy += (rng() - 0.5) * r.w * 0.7;
+    if (rng() < 0.35) {                             /* מכסה ביוב */
+      g.fillStyle = 'rgba(255,255,255,.06)';
+      g.beginPath(); g.arc(gx, gy, 6, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(0,0,0,.35)'; g.lineWidth = 1; g.stroke();
+    } else {                                        /* כתם כהה */
+      g.fillStyle = 'rgba(0,0,0,.18)';
+      g.beginPath(); g.ellipse(gx, gy, 5 + rng() * 10, 4 + rng() * 7, rng() * Math.PI, 0, Math.PI * 2); g.fill();
+    }
+  }
 }
 
 /* אבני שפה: קו בהיר בגבול בין הכביש למדרכה, קטוע בצמתים */
@@ -1095,53 +1344,81 @@ function drawBuildings3D(ccx, ccy, camX, camY, sw, sh) {
   }
 }
 
-/* ציור בניין בודד: צל, קירות גלויים עם חלונות ושלטים, ואז הגג מעליהם */
+/* ציור בניין בודד: צל, קירות גלויים עם חלונות ושלטים, ואז הגג מעליהם.
+   עובד על מצולע שרירותי — מלבן פרוצדורלי הוא פשוט מצולע בן ארבעה קודקודים,
+   כך שיש מסלול ציור אחד לשני סוגי העולמות. */
 function drawBuilding3D(b, ccx, ccy) {
-  var k = 1 + b.floors * BUILD_PROJ;                          /* מקדם ההיטל לפי מספר הקומות */
-  var rx = ccx + (b.x - ccx) * k;                             /* פינת הגג — הרחבה סביב מרכז המסך */
-  var ry = ccy + (b.y - ccy) * k;
-  var rw = b.w * k;                                           /* הגג גדול מהבסיס באותו יחס */
-  var rh = b.h * k;
+  var poly = b.poly;                                          /* טביעת הרגל */
+  var n = poly.length;                                        /* מספר הקודקודים */
+  if (n < 3) { return; }                                      /* מצולע לא שמיש */
+  var k = 1 + b.floors * BUILD_PROJ;                          /* מקדם ההיטל לפי הגובה */
+
+  var roof = [];                                              /* מצולע הגג */
+  var rx0 = Infinity, ry0 = Infinity, rx1 = -Infinity, ry1 = -Infinity;  /* תיבת הגג */
+  for (var i = 0; i < n; i++) {                               /* היטל כל קודקוד החוצה */
+    var px = ccx + (poly[i][0] - ccx) * k;                    /* הרחבה סביב נקודת ההיטל */
+    var py = ccy + (poly[i][1] - ccy) * k;
+    roof.push([px, py]);                                      /* קודקוד הגג */
+    if (px < rx0) { rx0 = px; }                               /* עדכון תיבת הגג */
+    if (py < ry0) { ry0 = py; }
+    if (px > rx1) { rx1 = px; }
+    if (py > ry1) { ry1 = py; }
+  }
 
   ctx.fillStyle = 'rgba(0,0,0,.42)';                          /* צל מוטל על הקרקע */
-  ctx.beginPath();                                            /* נתיב אחד לשני המלבנים */
-  ctx.rect(b.x + 10, b.y + 12, b.w, b.h);                     /* צל הבסיס */
-  ctx.rect(rx + 10, ry + 12, rw, rh);                         /* צל הגג */
+  ctx.beginPath();                                            /* נתיב אחד לשני המצולעים */
+  tracePoly(poly, 10, 12);                                    /* צל הבסיס */
+  tracePoly(roof, 10, 12);                                    /* צל הגג */
   ctx.fill();                                                 /* מילוי כאיחוד — בלי הכפלת כהות */
 
-  var base = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]]; /* קודקודי הבסיס */
-  var roof = [[rx, ry], [rx + rw, ry], [rx + rw, ry + rh], [rx, ry + rh]];             /* קודקודי הגג */
-
-  for (var s = 0; s < 4; s++) {                               /* מעבר על ארבעת הקירות */
-    var p0 = base[s], p1 = base[(s + 1) % 4];                 /* צלע הבסיס של הקיר */
+  for (var e = 0; e < n; e++) {                               /* מעבר על צלעות המצולע */
+    var p0 = poly[e], p1 = poly[(e + 1) % n];                 /* צלע הבסיס */
+    var dx = p1[0] - p0[0], dy = p1[1] - p0[1];               /* וקטור הצלע */
+    var len = Math.hypot(dx, dy);                             /* אורכה */
+    if (len < 1) { continue; }                                /* צלע מנוונת */
+    var nx = dy / len, ny = -dx / len;                        /* הנורמל היוצא (תלוי בכיוון הקיפוף) */
     var mx = (p0[0] + p1[0]) / 2, my = (p0[1] + p1[1]) / 2;   /* אמצע הצלע */
-    var n = NORMALS[s];                                       /* הנורמל היוצא של הצלע */
-    /* המצלמה נמצאת מעל מרכז המסך, ולכן נראים הקירות שפונים אליו. הם ממלאים
-       את הרווח שנוצר בין הבסיס לגג; הקירות הרחוקים מוסתרים מאחורי הגג. */
-    if ((mx - ccx) * n[0] + (my - ccy) * n[1] >= 0) { continue; }
-    var quad = [p0, p1, roof[(s + 1) % 4], roof[s]];          /* המרובע: בסיס → גג */
-    ctx.fillStyle = shade(b.color, WALL_SHADE[s]);            /* הצללה לפי כיוון הקיר */
+    /* המצלמה מעל נקודת ההיטל, ולכן נראים הקירות שפונים אליה */
+    if ((mx - ccx) * nx + (my - ccy) * ny >= 0) { continue; }
+    var quad = [p0, p1, roof[(e + 1) % n], roof[e]];          /* המרובע: בסיס → גג */
+    /* הצללה רציפה לפי כיוון הקיר: צפוני בהיר, דרומי כהה, וביניהם אינטרפולציה */
+    ctx.fillStyle = shade(b.color, Math.round(-30 * ny - 9 * nx - 4));
     fillQuad(quad);                                           /* גוף הקיר */
-    drawWallWindows(quad, b, s);                              /* חלונות */
-    drawWallSigns(quad, b, s);                                /* שלטי ניאון */
+    drawWallWindows(quad, b, e);                              /* חלונות */
+    drawWallSigns(quad, b, e);                                /* שלטי ניאון */
   }
 
   ctx.fillStyle = b.roofColor;                                /* משטח הגג */
-  ctx.fillRect(rx, ry, rw, rh);
+  ctx.beginPath(); tracePoly(roof, 0, 0); ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,.55)';                        /* קו מתאר להפרדה מהקירות */
   ctx.lineWidth = 1;
-  ctx.strokeRect(rx + .5, ry + .5, rw - 1, rh - 1);
+  ctx.stroke();
 
-  var rng = makeRng(b.seed);                                  /* מחולל דטרמיניסטי — אותו גג בכל פריים */
+  var rw = rx1 - rx0, rh = ry1 - ry0;                         /* מידות תיבת הגג */
+  if (rw < 26 || rh < 26) { return; }                         /* גג קטן מדי למתקנים */
+  ctx.save();                                                 /* חיתוך למצולע הגג — */
+  ctx.beginPath(); tracePoly(roof, 0, 0); ctx.clip();         /* כדי שמתקן לא יבלוט בבניין בצורת L */
+  var rng = makeRng(b.seed);                                  /* דטרמיניסטי — אותו גג בכל פריים */
   ctx.fillStyle = shade(b.roofColor, 20);                     /* מתקני גג, בהירים מעט מהגג */
   var units = 1 + Math.floor(rng() * 3);                      /* בין מתקן אחד לשלושה */
   for (var u = 0; u < units; u++) {                           /* ציור המתקנים */
     var uw = 16 + rng() * 26;                                 /* רוחב */
     var uh = 14 + rng() * 22;                                 /* גובה */
-    var ux = rx + 8 + rng() * Math.max(1, rw - uw - 16);      /* מיקום בתוך הגג */
-    var uy = ry + 8 + rng() * Math.max(1, rh - uh - 16);
+    var ux = rx0 + 6 + rng() * Math.max(1, rw - uw - 12);     /* מיקום בתוך תיבת הגג */
+    var uy = ry0 + 6 + rng() * Math.max(1, rh - uh - 12);
     ctx.fillRect(ux, uy, uw, uh);                             /* המתקן */
   }
+  ctx.restore();                                              /* ביטול החיתוך */
+}
+
+/* הוספת מצולע לנתיב הנוכחי, עם היסט אופציונלי (לצל). לא פותח נתיב בעצמו,
+   כדי שאפשר יהיה לצרף כמה מצולעים לנתיב אחד ולמלא אותם כאיחוד. */
+function tracePoly(poly, offX, offY) {
+  ctx.moveTo(poly[0][0] + offX, poly[0][1] + offY);           /* קודקוד ראשון */
+  for (var i = 1; i < poly.length; i++) {                     /* שאר הקודקודים */
+    ctx.lineTo(poly[i][0] + offX, poly[i][1] + offY);
+  }
+  ctx.closePath();                                            /* סגירת המצולע */
 }
 
 /* מילוי מרובע כלשהו (ארבעה קודקודים בקואורדינטות עולם) */
@@ -1257,6 +1534,23 @@ function renderMiniCanvas() {
   g.fillStyle = '#0b0d16';                          /* רקע כהה = מבננים */
   g.fillRect(0, 0, size, size);
   g.fillStyle = '#39405e';                          /* צבע הכבישים במיני-מפה */
+
+  if (gisMode) {                                    /* מפה אמיתית — ציור הצירים מוקטנים */
+    g.strokeStyle = '#39405e';                      /* אותו צבע, כקו ולא כמלבן */
+    g.lineCap = 'round'; g.lineJoin = 'round';      /* קצוות מעוגלים */
+    for (var r = 0; r < roads.length; r++) {        /* מעבר על הכבישים */
+      var pts = roads[r].p;                         /* המערך השטוח */
+      if (!pts || pts.length < 4) { continue; }     /* ציר מנוון */
+      g.lineWidth = Math.max(1, roads[r].w * s);    /* עובי יחסי, לפחות פיקסל */
+      g.beginPath();
+      g.moveTo(pts[0] * s, pts[1] * s);             /* קודקוד ראשון בקנה המידה הקטן */
+      for (var q = 2; q + 1 < pts.length; q += 2) { g.lineTo(pts[q] * s, pts[q + 1] * s); }
+      g.stroke();
+    }
+    miniCanvas = c;                                 /* שמירה */
+    return;                                         /* שאר הפונקציה שייך למסלול הפרוצדורלי */
+  }
+
   var bands = Math.ceil(GRID / BLOCK);              /* מספר רצועות הכביש */
   for (var b = 0; b < bands; b++) {                 /* ציור הרצועות כפסים */
     var pos = b * BLOCK * CELL * s;                 /* מיקום הרצועה בקנה המידה הקטן */
@@ -1313,12 +1607,26 @@ function bandCenter(b) { return (b * BLOCK + 1) * CELL; }
 /* פיזור סימני השאלה במפה: על כבישים, כיכרות ופארקים, במרחק סביר זה מזה */
 function placeMarks(count) {
   var rng = makeRng(Math.floor(Math.random() * 2147483647));  /* seed אקראי — פיזור שונה בכל משחק */
-  var candidates = [];                                        /* תאים אפשריים לאיסוף */
-  for (var cy = 2; cy < GRID - 2; cy += 2) {                  /* דגימה כל תא שני כדי לחסוך זיכרון */
-    for (var cx = 2; cx < GRID - 2; cx += 2) {
-      var t = cells[cellIndex(cx, cy)];                       /* סוג התא */
-      if (t === T_ROAD || t === T_PLAZA || t === T_GRASS) {   /* רק שטח פתוח שאפשר להגיע אליו */
-        candidates.push({ x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2 }); /* מרכז התא בפיקסלים */
+  var candidates = [];                                        /* מיקומים אפשריים לאיסוף */
+  if (gisMode) {                                              /* עולם מנתוני GIS */
+    for (var sp = 0; sp < spots.length; sp++) {               /* קודם נקודות מהנתונים */
+      candidates.push({ x: spots[sp].x, y: spots[sp].y });
+    }
+    if (candidates.length < count) {                          /* אין מספיק — משלימים מהכבישים */
+      for (var rd = 0; rd < roads.length; rd++) {             /* מעבר על הצירים */
+        var pts = roads[rd].p;                                /* המערך השטוח */
+        for (var pi = 0; pi + 1 < pts.length; pi += 2) {      /* כל קודקוד הוא מועמד */
+          candidates.push({ x: pts[pi], y: pts[pi + 1] });
+        }
+      }
+    }
+  } else {                                                    /* עיר פרוצדורלית — כמו קודם */
+    for (var cy = 2; cy < GRID - 2; cy += 2) {                /* דגימה כל תא שני כדי לחסוך זיכרון */
+      for (var cx = 2; cx < GRID - 2; cx += 2) {
+        var t = cells[cellIndex(cx, cy)];                     /* סוג התא */
+        if (t === T_ROAD || t === T_PLAZA || t === T_GRASS) { /* רק שטח פתוח שאפשר להגיע אליו */
+          candidates.push({ x: cx * CELL + CELL / 2, y: cy * CELL + CELL / 2 }); /* מרכז התא */
+        }
       }
     }
   }
@@ -1328,10 +1636,11 @@ function placeMarks(count) {
   }
 
   marks = [];                                                 /* איפוס הרשימה */
-  var minDist = CELL * 9;                                     /* מרחק מזערי בין שני סימנים */
+  var minDist = gisMode ? WORLD / 12 : CELL * 9;               /* מרחק מזערי בין שני סימנים */
   for (var k = 0; k < candidates.length && marks.length < count; k++) { /* בחירה חמדנית */
     var c = candidates[k];                                    /* המועמד הנוכחי */
-    if (Math.hypot(c.x - car.x, c.y - car.y) < CELL * 5) { continue; } /* לא צמוד לנקודת הפתיחה */
+    var nearSpawn = gisMode ? 140 : CELL * 5;                  /* טווח שמור סביב נקודת הפתיחה */
+    if (Math.hypot(c.x - car.x, c.y - car.y) < nearSpawn) { continue; } /* לא צמוד לפתיחה */
     var ok = true;                                            /* האם המועמד רחוק מספיק מכל הסימנים שכבר נבחרו */
     for (var m = 0; m < marks.length; m++) {
       if (Math.hypot(c.x - marks[m].x, c.y - marks[m].y) < minDist) { ok = false; break; }
@@ -2035,8 +2344,8 @@ function startGame() {
   state.startedAt = performance.now();                        /* התחלת שעון */
   clockStamp = 0;                                             /* אין השהיה פעילה */
 
-  car.x = bandCenter(3);                                      /* נקודת פתיחה בצומת מרכזי */
-  car.y = bandCenter(3);
+  car.x = gisMode ? spawnPoint[0] : bandCenter(3);             /* נקודת פתיחה: מהנתונים או צומת מרכזי */
+  car.y = gisMode ? spawnPoint[1] : bandCenter(3);
   car.angle = 0;                                              /* פנים לכיוון החיובי של ציר X */
   car.speed = 0;                                              /* עומד במקום */
   walker.x = car.x; walker.y = car.y;                         /* הדמות מתחילה באותו מקום */
@@ -2652,8 +2961,9 @@ function init() {
   miniCtx = $('minimap').getContext('2d');                    /* הקשר המיני-מפה */
 
   questions = loadQuestions();                                /* טעינת מאגר השאלות */
-  buildCity();                                                /* יצירת מבנה העיר */
-  renderWorldCanvas();                                        /* ציור מוקדם של העיר */
+  /* עולם מנתוני GIS אם הודבק כזה; אחרת — ואם הנתונים פגומים — עיר פרוצדורלית */
+  if (!(WORLD_DATA && loadWorldData(WORLD_DATA))) { buildCityProcedural(); }
+  renderWorldCanvas();                                        /* ציור מוקדם של הקרקע */
 
   resizeCanvas();                                             /* התאמת גודל ראשונית */
   window.addEventListener('resize', resizeCanvas);            /* והתאמה בכל שינוי גודל חלון */

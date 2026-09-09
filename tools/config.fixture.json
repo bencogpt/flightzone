@@ -1,0 +1,55 @@
+{
+  "_comment": "העתיקו לקובץ config.json וערכו. אל תכניסו token לקובץ הזה — השתמשו במשתנה NOIZZ_ARCGIS_TOKEN. pixelsPerMeter=3 נותן יחסי גודל בסגנון GTA2 (רכב מול רוחב כביש) ומגביל את השטח לכ-1.1 ק\"מ. ערך נמוך יותר מכסה שטח גדול יותר אבל הרכב ייראה ענק ביחס לרחוב.",
+  "source": {
+    "mode": "files",
+    "outSR": 2039,
+    "bbox": null,
+    "buildings": {
+      "url": "https://gis.example.local/arcgis/rest/services/City/FeatureServer/0",
+      "where": "1=1"
+    },
+    "roads": {
+      "url": "https://gis.example.local/arcgis/rest/services/City/FeatureServer/1",
+      "where": "1=1"
+    },
+    "spots": {
+      "url": "https://gis.example.local/arcgis/rest/services/City/FeatureServer/2",
+      "where": "1=1"
+    }
+  },
+  "files": {
+    "buildings": "fixtures/buildings.json",
+    "roads": "fixtures/roads.json",
+    "spots": "fixtures/spots.json"
+  },
+  "fields": {
+    "floors": "FLOORS",
+    "heightMeters": null,
+    "metersPerFloor": 3.2,
+    "defaultFloors": 3,
+    "minFloors": 1,
+    "maxFloors": 12,
+    "district": "LANDUSE",
+    "districtMap": {
+      "commercial": 0,
+      "industrial": 1,
+      "residential": 2,
+      "public": 3
+    },
+    "districtFallback": "byFloors",
+    "districtFixed": 0,
+    "roadWidth": "WIDTH",
+    "defaultRoadWidthMeters": 9.0,
+    "spotName": "NAME",
+    "roadWidthScale": 1.3
+  },
+  "world": {
+    "pixelsPerMeter": 3.0,
+    "maxWorldPx": 3500,
+    "cellPx": 8,
+    "simplifyMeters": 1.5,
+    "minAreaSqM": 25.0,
+    "maxBuildings": 4000,
+    "marginMeters": 40.0
+  }
+}

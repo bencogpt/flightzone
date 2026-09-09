@@ -1,0 +1,5 @@
+# קובץ ההגדרות האמיתי שלכם — עלול להכיל כתובות פנימיות ו-token. לא נכנס ל-git.
+config.json
+# פלט הכלי
+noizz26-world.json
+world.block.js
