@@ -190,12 +190,16 @@ for (const sec of content.sections) {
   });
   if (sec.docx) {
     const y = 1.9 + rowsPerCol * (ch + 0.16) + 0.12;
+    // size the closing callout to its text instead of stretching it to the slide foot
+    const charsPerLine = Math.floor((W - 1.7) / (0.0072 * 12));
+    const lines = Math.ceil(sec.docx.length / charsPerLine);
+    const h = Math.min(Math.max(0.6, 6.85 - y), lines * 0.235 + 0.36);
     s.addShape(pres.ShapeType.roundRect, {
-      x: 0.6, y, w: W - 1.2, h: Math.max(0.6, 6.85 - y), rectRadius: 0.07,
+      x: 0.6, y, w: W - 1.2, h, rectRadius: 0.07,
       fill: { color: 'E9EDF5' }, line: { color: 'E9EDF5' },
     });
     s.addText(sec.docx, {
-      ...rtl, x: 0.85, y, w: W - 1.7, h: Math.max(0.6, 6.85 - y),
+      ...rtl, x: 0.85, y, w: W - 1.7, h,
       fontSize: 12, bold: true, color: NAVY, valign: 'middle', lineSpacing: 17, isTextBox: true, margin: 0,
     });
   }
