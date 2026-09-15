@@ -1,0 +1,130 @@
+{
+ "01-login.jpg": [
+  1600,
+  1000
+ ],
+ "02-dashboard.jpg": [
+  1600,
+  1000
+ ],
+ "03-new-assessment.jpg": [
+  1600,
+  1597
+ ],
+ "04-model-and-agents.jpg": [
+  1600,
+  1000
+ ],
+ "05-processing.jpg": [
+  1600,
+  1000
+ ],
+ "06-report-summary.jpg": [
+  1600,
+  1000
+ ],
+ "07-report-claims.jpg": [
+  1600,
+  1000
+ ],
+ "08-report-assumptions.jpg": [
+  1600,
+  1000
+ ],
+ "09-report-contradicting.jpg": [
+  1600,
+  1000
+ ],
+ "10-report-alternatives.jpg": [
+  1600,
+  1000
+ ],
+ "11-report-recommendations.jpg": [
+  1600,
+  1000
+ ],
+ "12-report-agents.jpg": [
+  1600,
+  1000
+ ],
+ "13-report-entities.jpg": [
+  1600,
+  1000
+ ],
+ "14-report-transparency.jpg": [
+  1600,
+  1000
+ ],
+ "15-report-audit.jpg": [
+  1600,
+  1000
+ ],
+ "16-report-strategic.jpg": [
+  1600,
+  1000
+ ],
+ "17-report-chat.jpg": [
+  1600,
+  1000
+ ],
+ "18-report-original-doc.jpg": [
+  1600,
+  1000
+ ],
+ "19-skills-manager.jpg": [
+  1600,
+  1051
+ ],
+ "20-skill-creator-1.jpg": [
+  1600,
+  1311
+ ],
+ "21-skill-creator-2.jpg": [
+  1600,
+  1311
+ ],
+ "22-skill-creator-3.jpg": [
+  1600,
+  1311
+ ],
+ "23-skill-creator-4.jpg": [
+  1600,
+  1311
+ ],
+ "24-skill-creator-5.jpg": [
+  1600,
+  1311
+ ],
+ "25-skill-creator-preview.jpg": [
+  1600,
+  1311
+ ],
+ "26-agents-manager.jpg": [
+  1600,
+  1071
+ ],
+ "27-agent-creator-1.jpg": [
+  1600,
+  1311
+ ],
+ "28-agent-creator-2.jpg": [
+  1600,
+  1311
+ ],
+ "29-agent-creator-3.jpg": [
+  1600,
+  1311
+ ],
+ "30-workflows.jpg": [
+  1600,
+  1000
+ ],
+ "31-sources.jpg": [
+  1600,
+  1000
+ ],
+ "32-users.jpg": [
+  1600,
+  1000
+ ]
+}
